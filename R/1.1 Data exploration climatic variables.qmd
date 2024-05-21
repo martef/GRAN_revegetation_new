@@ -1,0 +1,86 @@
+---
+title: "1.1 Data exploration climatic variables"
+author: "MarteF"
+format: html
+editor: visual
+---
+
+## Packages needed
+
+```{r Packages needed, include=FALSE}
+library(hydroTSM)
+library(zoo)
+library(lubridate)
+library(tidyverse)
+library(timetk)
+library(readr)
+
+
+```
+
+## Uploading data
+
+Data retrieved from aklima.no from weather stations around Namsos and Åfjord (two near Namsos and 1 near Åfjord): Åfjord Ii, Namsos stasjon and Overhalla-Unnset.
+
+Åfjord Ii lies close enough to Høydalsmoan NR that I think the data can be used directly.
+
+The weather data for Vestersetermyra, however, needs to be adjusted somewhat. I only have precipitation data from Overhalla-Unnset and temperatures from Namsos stasjon.
+
+There used to be a weather station in Bangdalen (it has records of annual precipitation 1930-2012). The annual precipitation here is about 10% higher than the precipitation at Overhalla-Unnset. I'll adjust the data from recent years that I will use accordingly.
+
+Namsos stasjon lies only 20mas and close to the fjord, which means the temperatures at Vestersetermyra (120mas) should be adjusted slightly. Bragazza 2008 uses -0.6oC per 100m change in altitude, which seems to be more or less the norm. I'll adjust similarily.
+
+```{r Upload datasets, include=FALSE}
+klima_afjord <- read.csv('C:/Users/martef/DokumenterIntern/GitHub/GRAN_revegetation_new/data/klimadata_2019-2023_afjord_komplett.csv', 
+                         sep = ';',
+                         fileEncoding = 'ISO-8859-1',
+                         header = TRUE)
+klima_namsosstasjon <- readr::read_delim('C:/Users/martef/DokumenterIntern/GitHub/GRAN_revegetation_new/data/klimadata_2019-2023_namsosstasjon.csv', 
+                                  delim = ';',
+                                  locale = locale('se', encoding = 'ISO8859-1'),
+                                  col_names = TRUE) 
+klima_overhalla <- readr::read_delim('C:/Users/martef/DokumenterIntern/GitHub/GRAN_revegetation_new/data/klimadata_2019-2023_overhalla.csv', 
+                                  delim = ';',
+                                  locale = locale('se', encoding = 'ISO8859-1'),
+                                  col_names = TRUE)
+klima_rodhammer <- readr::read_delim('C:/Users/martef/DokumenterIntern/GitHub/GRAN_revegetation/data/klimadata_2019-2023_rodhammer.csv', 
+                                  delim = ';',
+                                  locale = locale('se', encoding = 'ISO8859-1'),
+                                  col_names = TRUE)  
+
+#This function can upload the datasets with special characters 
+
+# All numbers are registered as characters in the Namsos dataset. Need to be converted
+
+klima_afjord <- klima_afjord %>% mutate_at(c('Mean_temp'), as.numeric)
+klima_namsosstasjon <- klima_namsosstasjon %>% mutate_at(c('Mean_temp', 'Min_temp'), as.numeric)
+
+```
+
+Combining all data into one dataset
+
+```{r warnings=FALSE, results=FALSE}
+climdat <- klima_afjord %>%
+  full_join(klima_namsosstasjon)
+climdat <- climdat %>%
+  full_join(klima_overhalla)
+#Remove one row with alternative information, row 3470
+climdat <- climdat[-3470,]
+
+rm(klima_afjord, klima_namsosstasjon, klima_overhalla, klima_rodhammer)
+```
+
+## Cleanup of dataset
+
+```{r}
+#Create new columns with only year and month
+climdat$Year <- floor_date(climdat$Time, "year")
+climdat$Month <- floor_date(climdat$Time, "month")
+climdat$month <- month(climdat$Time)
+climdat$year <- year(climdat$Time)
+
+#Create julian date column
+climdat$jday <- yday(climdat$Time)
+climdat$month_name <- format(climdat$Time,"%B")
+climdat$month_name <- factor(climdat$month_name, levels = month.name)
+```
