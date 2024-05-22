@@ -8,14 +8,10 @@ editor: visual
 ## Packages needed
 
 ```{r Packages needed, include=FALSE}
-library(hydroTSM)
-library(zoo)
 library(lubridate)
 library(tidyverse)
-library(timetk)
 library(readr)
-
-
+library(data.table)
 ```
 
 ## Uploading data
@@ -24,17 +20,17 @@ Data retrieved from aklima.no from weather stations around Namsos and Åfjord (t
 
 Åfjord Ii lies close enough to Høydalsmoan NR that I think the data can be used directly.
 
-The weather data for Vestersetermyra, however, needs to be adjusted somewhat. I only have precipitation data from Overhalla-Unnset and temperatures from Namsos stasjon.
+The weather data for Vestersetermyra, however, needs to be adjusted somewhat. I have precipitation data from one station, Overhalla-Unnset, and temperatures from another station, Namsos stasjon.
 
 There used to be a weather station in Bangdalen (it has records of annual precipitation 1930-2012). The annual precipitation here is about 10% higher than the precipitation at Overhalla-Unnset. I'll adjust the data from recent years that I will use accordingly.
 
 Namsos stasjon lies only 20mas and close to the fjord, which means the temperatures at Vestersetermyra (120mas) should be adjusted slightly. Bragazza 2008 uses -0.6oC per 100m change in altitude, which seems to be more or less the norm. I'll adjust similarily.
 
 ```{r Upload datasets, include=FALSE}
-klima_afjord <- read.csv('C:/Users/martef/DokumenterIntern/GitHub/GRAN_revegetation_new/data/klimadata_2019-2023_afjord_komplett.csv', 
-                         sep = ';',
-                         fileEncoding = 'ISO-8859-1',
-                         header = TRUE)
+klima_afjord <- readr::read_delim('C:/Users/martef/DokumenterIntern/GitHub/GRAN_revegetation_new/data/klimadata_2019-2023_afjord_komplett.csv', 
+                         delim =  ';',
+                         locale = locale('se', encoding= 'ISO8859-1'),
+                         col_names = TRUE)
 klima_namsosstasjon <- readr::read_delim('C:/Users/martef/DokumenterIntern/GitHub/GRAN_revegetation_new/data/klimadata_2019-2023_namsosstasjon.csv', 
                                   delim = ';',
                                   locale = locale('se', encoding = 'ISO8859-1'),
@@ -43,12 +39,9 @@ klima_overhalla <- readr::read_delim('C:/Users/martef/DokumenterIntern/GitHub/GR
                                   delim = ';',
                                   locale = locale('se', encoding = 'ISO8859-1'),
                                   col_names = TRUE)
-klima_rodhammer <- readr::read_delim('C:/Users/martef/DokumenterIntern/GitHub/GRAN_revegetation/data/klimadata_2019-2023_rodhammer.csv', 
-                                  delim = ';',
-                                  locale = locale('se', encoding = 'ISO8859-1'),
-                                  col_names = TRUE)  
+ 
 
-#This function can upload the datasets with special characters 
+#The function read_delim seems to upload the datasets with special characters nicely, but this has caused trouble on other computers... 
 
 # All numbers are registered as characters in the Namsos dataset. Need to be converted
 
@@ -67,7 +60,7 @@ climdat <- climdat %>%
 #Remove one row with alternative information, row 3470
 climdat <- climdat[-3470,]
 
-rm(klima_afjord, klima_namsosstasjon, klima_overhalla, klima_rodhammer)
+rm(klima_afjord, klima_namsosstasjon, klima_overhalla)
 ```
 
 ## Cleanup of dataset
@@ -83,4 +76,600 @@ climdat$year <- year(climdat$Time)
 climdat$jday <- yday(climdat$Time)
 climdat$month_name <- format(climdat$Time,"%B")
 climdat$month_name <- factor(climdat$month_name, levels = month.name)
+```
+
+```{r}
+#rename variables
+unique(climdat$Name)
+climdat$Name[climdat$Name==unique(climdat$Name[1])] <-'Afjord'
+climdat$Name[climdat$Name==unique(climdat$Name[2800])] <-'Namsos'
+climdat$Name[climdat$Name==unique(climdat$Name[3900])] <- 'Overhalla'
+unique(climdat$Name)
+
+
+#Adjust the data for Vestersetermyra
+climdat <- climdat %>%
+ mutate(Precipitation=case_when(Name=='Overhalla'~ Precipitation *1.10,
+                                TRUE ~ Precipitation))
+climdat <- climdat %>%
+  mutate(Max_temp=case_when(Name=='Namsos'~Max_temp-0.6, 
+                            TRUE~Max_temp)) %>%
+  mutate(Mean_temp=case_when(Name=='Namsos'~Mean_temp-0.6, 
+                            TRUE~Mean_temp)) %>%
+  mutate(Min_temp=case_when(Name=='Namsos'~Min_temp-0.6, 
+                            TRUE~Min_temp))
+  
+```
+
+```{r}
+#Change the names of the weather stations so that I only have one name for each location
+climdat <- climdat %>%
+  mutate(Name=case_when(Name=='Overhalla'~ 'Vestersetermyra',
+                         Name=='Namsos'~'Vestersetermyra',
+                         Name=='Afjord'~'Hoydalsmoan',
+                                TRUE ~ NA))
+```
+
+```{r}
+#Create longformat with all temperatures in one column
+
+climdat_long <- climdat %>%
+  pivot_longer(cols=c('Min_temp', 'Max_temp', 'Mean_temp'), names_to='Temp_type', values_to='Temp')
+```
+
+```{r}
+#Subset to growth season (1. May to 30.Sept)
+climdat_season <- climdat %>%     
+  filter(month >= 5 & month <= 9)
+
+#write.csv(climdat, file="../data/climdat.csv") 
+#(climdat_long, file='../data/climdat_long.csv')
+#write.csv(climdat_season, file="../data/climdat_season.csv")
+```
+
+## The variables I want to look closer at
+
+-   The mean mean/max/min daily temperature throughout the growth season
+
+-   The mean mean/max/min daily temperature throughout early growth season (May, June, midJuly)
+
+-   The overall precipitation through the growth season
+
+-   The overall precipitation in early growth season (May, June, midJuly)
+
+-   The mean precipitation per month through the growth season
+
+-   The mean precipitation per month in early growth season (May, June, midJuly)
+
+-   Total days without precipitation through growth season
+
+-   Total days without precipitation in early growth season (May, June, midJuly)
+
+-   Extreme precipitation events through growth season
+
+# Temperature
+
+## Exploring the daily, monthly and yearly means
+
+All temperatures at Høydalsmoan:
+
+```{r}
+climdat_long %>%
+ filter(Name=='Hoydalsmoan')%>%
+  group_by(year(Time)) %>%
+ 
+    ggplot(aes(x = jday, y = Temp, color = factor(Temp_type))) +
+    geom_line(na.rm=TRUE) +
+    labs(title = paste("Temperatures at Hoydalsmoan"),
+         x = "Julian Date",
+         y = "Temperatures in Celsius",
+         color = "Daily temperatures") +
+    theme_minimal() +
+    facet_grid(year~.)+
+    scale_color_viridis_d(option='plasma') + 
+    theme(legend.position = "bottom")
+
+```
+
+Temperatures in Høydalsmoan during growth season only:
+
+```{r}
+climdat_long %>%
+ filter(Name=='Hoydalsmoan')%>%
+   filter(month >= 5 & month <= 9)%>%
+  group_by(year(Time)) %>%
+ 
+    ggplot(aes(x = as.Date(jday, origin = as.Date("2019-01-01")), y = Temp, color = factor(Temp_type))) + scale_x_date(date_labels = '%b') +
+    geom_line(na.rm=TRUE) +
+    labs(title = paste("Temperatures at Hoydalsmoan"),
+         x = "Month",
+         y = "Temperatures in Celsius",
+         color = "Daily temperatures") +
+    theme_minimal() +
+    facet_grid(year~.) + 
+    theme(legend.position = "bottom")
+```
+
+These figures are not very easy to read, other than to say that the data looks reasonable. Max temp during summer is around 30 degrees Celsius while the minimum temperature is around 0.
+
+*Averaged temperatures per month of the year:*
+
+```{r}
+climdat_long %>%
+  group_by(Name, month, Temp_type) %>%
+summarise_at(vars(Temp), list(mean = mean), na.rm = TRUE)
+
+```
+
+Plot the monthly averages:
+
+```{r}
+climdat_long %>%
+  ggplot(aes(x = as.factor(month), y = Temp, color = Temp_type)) +
+  geom_boxplot() +
+  facet_wrap(Name ~ Temp_type) +
+  labs(x = "Month", y = "Temperature", title = "Monthly Temperature by Temp_type") +
+  theme_minimal()
+```
+
+All the datapoints giving warnings in the ggplot is NAs, and not values way out of range.
+
+The temperatures at Hoydalsmoan and Vestersetermyra are very similar.
+
+*Average temperatures by specific months and years:*
+
+```{r}
+climdat_long %>%
+  group_by(Name, year, month, Temp_type) %>%
+summarise_at(vars(Temp), list(mean = mean), na.rm = TRUE)
+
+```
+
+```{r}
+climdat_long %>%
+  filter(Name=="Hoydalsmoan") %>%
+  ggplot(aes(x = as.factor(month), y = Temp, color = Temp_type)) +
+  geom_boxplot() +
+  facet_wrap(year ~ Temp_type) +
+  labs(x = "Month", y = "Temperature", title = "Monthly Temperature Trends by Temp_type at Hoydalsmoan") +
+  theme_minimal()
+```
+
+```{r}
+climdat_long %>%
+  filter(Name=="Vestersetermyra") %>%
+  ggplot(aes(x = as.factor(month), y = Temp, color = Temp_type)) +
+  geom_boxplot() +
+  facet_wrap(year ~ Temp_type) +
+  labs(x = "Month", y = "Temperature", title = "Monthly Temperature Trends by Temp_type at Vestersetermyra") +
+  theme_minimal()
+```
+
+Likewise here, the temperatures at Hoydalsmoan and Vestersetermyra are very similar throughout the study period. This was expected, as the locations are relatively close to each other, and at almost same mas.
+
+```{r}
+mean_temp_yearly <- climdat_long %>%
+  group_by(Name, year, month, Temp_type) %>%
+summarise_at(vars(Temp), list(mean = mean), na.rm = TRUE)
+mean_temp_yearly
+```
+
+Creating an aggregated dataset for the mean monthly temperatures:
+
+```{r}
+mean_temp_yearly %>%
+    filter(Name=='Vestersetermyra') %>%
+  ggplot(aes(x = month, y = mean, fill=Temp_type)) +
+  geom_col(position='dodge') +
+  facet_wrap(vars(year)) +
+    ggtitle('Monthly mean temperatures at Vestersetermyra')
+```
+
+```{r}
+mean_temp_yearly %>%
+   filter(Name=='Hoydalsmoan') %>%
+  ggplot(aes(x = month, y = mean, fill=Temp_type)) +
+  geom_col(position='dodge') +
+  facet_wrap(vars(year)) +
+  ggtitle('Monthly mean temperatures at Hoydalsmoan')
+```
+
+Creating an aggregated dataset for monthly means for the growth season:
+
+```{r}
+mean_temp_season <- climdat_long %>%
+  filter(month >= 5 & month <= 9) %>%
+  group_by(year, month, Name, Temp_type) %>%
+summarise_at(vars(Temp), list(mean = mean), na.rm = TRUE)
+```
+
+## Summary
+
+```{r}
+#Calculate annual mean temperatures
+annual_mean_temp <- climdat_long %>%
+  filter(Temp_type == "Mean_temp") %>%
+  group_by(Name, year) %>%
+  summarise(annual_mean_temp = mean(Temp, na.rm = TRUE))
+annual_mean_temp
+
+#Calculate mean temperatures during growth season (1.May to 30.September)
+growth_season_mean_temp <- climdat_long %>%
+  filter(Temp_type == "Mean_temp") %>%
+filter(month >= 5 & month <= 9)%>%
+  group_by(Name, year) %>%
+  summarise(growth_season_mean_temp = mean(Temp, na.rm = TRUE))
+growth_season_mean_temp
+
+#Calculate mean temperatures during early growth season (1.May to 31.July)
+early_growth_season_mean_temp <- climdat_long %>%
+  filter(Temp_type == "Mean_temp") %>%
+  filter(month >= 5 & month <= 7)%>%
+  group_by(Name, year) %>%
+  summarise(early_growth_season_mean_temp = mean(Temp, na.rm = TRUE))
+early_growth_season_mean_temp
+
+#Combine the results
+combined_results <- annual_mean_temp %>%
+  left_join(growth_season_mean_temp, by = c("Name", "year")) %>%
+  left_join(early_growth_season_mean_temp, by = c("Name", "year"))
+
+print(combined_results)
+
+```
+
+```{r}
+combined_results %>%
+  group_by(Name) %>%
+  summarise(annual = mean(annual_mean_temp, na.rm = TRUE),
+            gs = mean(growth_season_mean_temp, na.rm = TRUE),
+            gs_early = mean(early_growth_season_mean_temp, na.rm = TRUE))
+```
+
+The annual mean daily temperature is 6.5 at Hoydalsmoan and 5.7 at Vestersetermyra. During the growth season this is 12.2 and 11.8.
+
+*The maximum temperatures:*
+
+```{r}
+climdat_season %>%
+  group_by(Name, year) %>%
+  summarize(min = min(Max_temp, na.rm=TRUE),
+            mean = mean(Max_temp, na.rm=TRUE),
+            median = median(Max_temp, na.rm=TRUE),
+            max = max(Max_temp, na.rm=TRUE),
+            days_15 = sum(Max_temp>=15, na.rm = TRUE))
+```
+
+The max daily temperature throughout the growth season is in general centered around about 17 degrees Celsius (overall mean), with a final maximum at about 30 degrees each year. Most years have \>80 days of temperatures reaching \>15degrees Celsius, that is more than 50% of the days (the period has 153 days).
+
+*The minimum temperatures:*
+
+```{r}
+climdat_season %>%
+  group_by(Name, year) %>%
+  summarize(min = min(Min_temp, na.rm=TRUE),
+            mean = mean(Min_temp, na.rm=TRUE),
+            median = median(Min_temp, na.rm=TRUE),
+            max = max(Min_temp, na.rm=TRUE),
+            days_minus = sum(Min_temp<0, na.rm = TRUE))
+```
+
+There is between 4 and 9 days of minus degrees within the growth season each year, with max minus -3. The mean low temperature throughout the season is about 8 degrees (i.e night temperature), with the hottest nights seeing 15-21 degrees Celsius (so very few "tropenetter").
+
+## Creating variables
+
+These are the variables I want to take with me into the analysis:
+
+-   The mean mean/max/min daily temperature throughout the growth season
+
+-   The mean mean/max/min daily temperature throughout early growth season (May, June, July)
+
+First, variables for daily means in the growth season (May-September) and in the early growth season (May-July):
+
+```{r}
+temp_season <- climdat_long %>%
+  filter(month >= 5 & month <= 9) %>%
+  group_by(year, Name, Temp_type) %>%
+summarise_at(vars(Temp), list(mean_temp_season = mean), na.rm = TRUE)
+
+temp_early <- climdat_long %>%
+  filter(month >= 5 & month <= 7) %>%
+  group_by(year, Name, Temp_type) %>%
+summarise_at(vars(Temp), list(mean_temp_early = mean), na.rm = TRUE)
+
+temp_var <- temp_season %>%
+  full_join(temp_early)
+
+rm(temp_season, temp_early)
+temp_var
+```
+
+# Precipitation
+
+## Exploring the data
+
+First, lets check out the daily precipitation:
+
+```{r}
+climdat %>%
+ filter(Name=='Hoydalsmoan')%>%
+   
+  group_by(year(Time)) %>%
+ 
+    ggplot(aes(x = as.Date(jday, origin = as.Date("2019-01-01")), y = Precipitation)) + scale_x_date(date_labels = "%b") +
+    geom_col(na.rm=TRUE) +
+    labs(title = paste("Precipitation at Hoydalsmoan"),
+         x = "Month",
+         y = "Precipitation in mm") +
+    theme_minimal() +
+    facet_grid(year~., scales = "free_y") + 
+    theme(legend.position = "bottom")
+```
+
+```{r}
+climdat %>%
+ filter(Name=='Vestersetermyra')%>%
+   
+  group_by(year(Time)) %>%
+ 
+    ggplot(aes(x = as.Date(jday, origin = as.Date("2019-01-01")), y = Precipitation)) +
+       scale_x_date(date_labels = "%b") +
+    geom_col(na.rm=TRUE) +
+    labs(title = paste("Precipitation at Vestermyra"),
+         x = "Month",
+         y = "Precipitation in mm") +
+    theme_minimal() +
+    facet_grid(year~., scales = "free_y") + 
+    theme(legend.position = "bottom")
+```
+
+Let's restrict this to just the growth season.
+
+```{r}
+climdat %>%
+ filter(Name=='Hoydalsmoan')%>%
+  filter(month>=5 & month<=9)%>%
+  group_by(year(Time)) %>%
+    ggplot(aes(x = as.Date(jday, origin = as.Date("2019-01-01")), y = Precipitation)) +
+    geom_col(na.rm=TRUE) +
+     scale_x_date(date_labels = "%b") +
+    labs(title = paste("Precipitation at Hoydalsmoan"),
+         x = "Month",
+         y = "Precipitation in mm") +
+    theme_minimal() +
+    facet_grid(year~., scales = "free_y") + 
+    theme(legend.position = "bottom")
+```
+
+```{r}
+climdat %>%
+ filter(Name=='Vestersetermyra')%>%
+  filter(month>=5 & month<=9)%>%
+  group_by(year(Time)) %>%
+    ggplot(aes(x = as.Date(jday, origin = as.Date("2019-01-01")), y = Precipitation)) +
+    geom_col(na.rm=TRUE) +
+     scale_x_date(date_labels = "%b") +
+    labs(title = paste("Precipitation at Vestersetermyra"),
+         x = "Month",
+         y = "Precipitation in mm") +
+    theme_minimal() +
+    facet_grid(year~., scales = "free_y") + 
+    theme(legend.position = "bottom")
+```
+
+## Creating variables
+
+### Overall precipitation for year, growth season and early season
+
+```{r}
+prc_overall <-climdat %>%
+  group_by(Name, year)%>%
+  summarise(sum_prc_year = sum(Precipitation, na.rm=T))
+
+prc_season <- climdat %>%
+filter(month>=5 & month <=9) %>%
+  group_by(Name, year)%>%
+  summarise(sum_prc_season=sum(Precipitation, na.rm=T))
+
+prc_earlygs <- climdat %>%
+  filter(month>=5 & month <=7) %>%
+  group_by(Name, year) %>%
+  summarise(sum_prc_early=sum(Precipitation, na.rm=T))
+
+prc_overall <- prc_overall %>%
+  full_join(prc_season) %>%
+      full_join(prc_earlygs)
+
+rm(prc_season, prc_earlygs)
+prc_overall %>% print(n = Inf, width = Inf)
+```
+
+There is somewhat less precipitation at Vestersetermyra than Hoydalsmoan.
+
+The total annual precipitation during the experiment period is between 1650 and 2050 mm at Hoydalsmoan and between 1500 and 1650 mm at Vestersetermyra. 2023 cannot count for the annual precipitation, as I only have downloaded values up until October. 2021 was the wettest year while 2019 was the driest for the annual total, but 2023 has the driest growth season. 2021 has the driest early growth season, with extreme low values for May through July at both sites, but especially at Vestersetermyra.
+
+### Monthly means
+
+```{r}
+climdat %>%
+  filter(month>=5 & month<=9)%>%
+  group_by(year(Time)) %>%
+    ggplot(aes(x = month, y = Precipitation)) +
+    geom_col(na.rm=TRUE) +
+    labs(title = paste("Precipitation per month in growth season"),
+         x = "Month",
+         y = "Precipitation in mm",
+         ) +
+    theme_minimal() +
+    facet_grid(Name~year, scales = "free_y") + 
+    theme(legend.position = "bottom")
+```
+
+```{r}
+prc_month <-climdat %>%
+  group_by(Name, year, month)%>%
+      filter(year!='2023') %>%
+  summarise(sum_year = sum(Precipitation, na.rm=T)) %>%
+  summarise(monthly_prc_year =mean(sum_year, na.rm=T))
+
+prc_month_season <- climdat %>%
+filter(month>=5 & month <=9) %>%
+  group_by(Name, year, month)%>%
+  summarise(sum_season=sum(Precipitation, na.rm=T))%>%
+summarise(monthly_prc_season =mean(sum_season, na.rm=T))
+
+prc_month_earlygs <- climdat %>%
+  filter(month>=5 & month <=7) %>%
+  group_by(Name, year, month) %>%
+  summarise(sum_early=sum(Precipitation, na.rm=T)) %>%
+  summarise(monthly_prc_early=mean(sum_early, na.rm=T)) 
+
+prc_month <- prc_month %>%
+  full_join(prc_month_season) %>%
+      full_join(prc_month_earlygs)
+
+rm(prc_month_earlygs, prc_month_season)
+
+prc_month %>% print(n = Inf, width = Inf)
+```
+
+```{r}
+prc_month %>%
+  group_by(Name) %>%
+summarise(mean_monthly=mean(monthly_prc_year, na.rm=T),
+          mean_monthly_gs=mean(monthly_prc_season, na.rm=T))
+```
+
+The monthly precipitation is about 155mm at Hoydalsmoan and 130mm at Vestersetermyra, somewhat lower during the growth season (140 and 105).
+
+### Number of days with/without precipitation each year, growth season, early growth season
+
+```{r}
+zero_year <-climdat %>%
+  group_by(Name, year) %>%
+  summarise (days_prc_year=sum(Precipitation>0, na.rm=T), zero_days_year=sum(Precipitation<=0, na.rm=T))
+
+zero_season <- climdat %>%
+filter(month>=5 & month <=9) %>%
+  group_by(Name, year) %>%
+  summarise (days_prc_season=sum(Precipitation>0, na.rm=T), zero_days_season=sum(Precipitation<=0, na.rm=T))
+
+zero_earlygs <- climdat %>%
+  filter(month>=5 & month <=7) %>%
+  group_by(Name, year) %>%
+  summarise (days_prc_early=sum(Precipitation>0, na.rm=T), zero_days_early=sum(Precipitation<=0, na.rm=T))
+
+zero_all <- zero_year %>%
+  full_join(zero_season) %>%
+      full_join(zero_earlygs)
+
+rm(zero_season, zero_earlygs, zero_year)
+zero_all %>% print(n = Inf, width = Inf)
+
+```
+
+It's raining a little about 2/3 of the days each year. There's definitely differences between the years and the locations, so this needs to be accounted for in the models.
+
+### Consecutive days with zero precipitation in growth season
+
+How many days in a row that doesn't have any precipitation may have a large impact on growth and survival of the Sphagnum fragments.
+
+```{r}
+# Function to calculate consecutive dry days
+calculate_consecutive_days <- function(data) {
+  data %>%
+    filter(!is.na(Precipitation)) %>%
+    mutate(consecutive_days = Precipitation <= 0) %>%
+    group_by(Name, year) %>%
+    mutate(streak_id = rleid(consecutive_days)) %>%
+    ungroup() %>%
+    group_by(Name, year, streak_id) %>%
+    summarise(streak_length = sum(consecutive_days), .groups = 'drop') %>%
+    filter(streak_length > 0)
+}
+
+# Growth season
+df_growth <- climdat %>%
+  filter(month >= 5 & month <= 9) %>%
+  calculate_consecutive_days()
+
+result_growth <- df_growth %>%
+  group_by(Name, year) %>%
+  summarise(
+    consecutive_days_season = max(streak_length),
+    count_above_5_season = sum(streak_length > 5)
+  ) %>%
+  ungroup()
+
+# Early growth season
+df_early <- climdat %>%
+  filter(month >= 5 & month <= 7) %>%
+  calculate_consecutive_days()
+
+result_early <- df_early %>%
+  group_by(Name, year) %>%
+  summarise(
+    consecutive_days_early = max(streak_length),
+    count_above_5_early = sum(streak_length > 5)
+  ) %>%
+  ungroup()
+
+# Combine results
+cons_days <- result_growth %>%
+  full_join(result_early, by = c("Name", "year"))
+
+rm(result_growth, result_early)
+cons_days
+
+```
+
+It's about 10-14 days max in a row without precipitation during growth season, and 3 out of 5 of these events happen in the early growth season. There are only max 3 and mostly 2 events of more than 5 days in a row without any precipitation each growth season. The longest period without precipitation was 19 days at Hoydalsmoan in early growth season 2020. The same dry period was 14 days long at Vestersetermyra.
+
+```{r}
+#Another way of calculating the consecutive days in a row without prec
+df <- climdat %>%
+  filter(month>=5 & month <=9) %>%
+  filter(!is.na(Precipitation)) %>%
+  mutate(consecutive_days = Precipitation <= 0) %>%
+  group_by(Name, year) %>%
+  mutate(consecutive_days = cumsum(consecutive_days) - cummax((!consecutive_days) * cumsum(consecutive_days))) %>%
+  ungroup()
+
+
+df %>%
+  filter(month>=5 & month <=9) %>%
+  group_by(year(Time)) %>%
+    ggplot(aes(x = as.Date(jday, origin = as.Date("2019-01-01")), y = consecutive_days)) +
+   scale_x_date(date_labels = "%b") +
+  geom_col(na.rm=TRUE) +
+    labs(title = paste("Consecutive days with zero precipitation"),
+         x = "Month",
+         y = "Days") +
+    theme_minimal() +
+    facet_grid(year~Name, scales = "free_y") + 
+    theme(legend.position = "bottom")
+```
+
+### Combine variables
+
+```{r}
+prc_var <- cons_days %>%
+  full_join(prc_overall) %>%
+  full_join(zero_all) %>%
+  full_join(prc_month) %>%
+  full_join(cons_days)
+
+prc_var
+```
+
+## Final dataset with all climate variables
+
+```{r}
+#Create wide format of temperature variables
+temp_var_wide <- pivot_wider(temp_var, names_from='Temp_type', values_from=c('mean_temp_season', 'mean_temp_early') )
+
+clim_var <- prc_var %>% full_join(temp_var_wide)
+
+write.csv(clim_var, '../data/clim_var.csv')
+
 ```
