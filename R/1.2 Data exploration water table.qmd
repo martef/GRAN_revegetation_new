@@ -1,0 +1,331 @@
+---
+title: "1.2 Data exploration water table"
+author: "MarteF"
+format: html
+editor: visual
+---
+
+## Packages needed
+
+```{r}
+library(tidyverse)
+library(readr)
+library(lubridate)
+library(scales)
+library(gridExtra)
+
+```
+
+## Uploading the data
+
+```{r}
+wt_all <- readr::read_delim('C:/Users/martef/DokumenterIntern/GitHub/GRAN_revegetation_new/data/wt_all.csv', 
+                                  delim = ',',
+                                  col_names = TRUE)
+```
+
+## What I want to accomplish
+
+I need to aggregate the data to show:
+
+\- mean/max/min per day
+
+\- mean/max/min per month
+
+\- mean/max/min through growth season
+
+\- how many days with lower than -20cm through growth season
+
+-   max consecutive days with lower than -20cm through growth season
+
+# Data exploration
+
+Plotting the raw data:
+
+*HM1 (Stormyra):*
+
+```{r}
+
+plot_HM1_2020 <- wt_all %>%
+  filter(Station_ID=="HM1") %>%
+  filter(year==2020)%>%
+  filter(LEVEL>-1)%>%
+ggplot(aes(Date,LEVEL)) +
+  geom_step(aes(x = Date, y = LEVEL), 
+            direction = 'mid',
+            linewidth = 1,
+            color = "black") +
+  xlab("Date 2020") + ylab("WT (m)")+
+  scale_x_date(labels=date_format('%b'), date_breaks = '1 month')
+
+plot_HM1_2021 <- wt_all %>%
+  filter(Station_ID=="HM1") %>%
+  filter(year==2021)%>%
+  filter(LEVEL>-1)%>%
+ggplot(aes(Date,LEVEL)) +
+  geom_step(aes(x = Date, y = LEVEL), 
+            direction = 'mid',
+            linewidth = 1,
+            color = "black") +
+  xlab("Date 2021") + ylab("WT (m)")+
+  scale_x_date(labels=date_format('%b'), date_breaks = '1 month')
+
+plot_HM1_2022 <- wt_all %>%
+  filter(Station_ID=="HM1") %>%
+  filter(year==2022)%>%
+  filter(LEVEL>-1)%>%
+ggplot(aes(Date,LEVEL)) +
+  geom_step(aes(x = Date, y = LEVEL), 
+            direction = 'mid',
+            linewidth = 1,
+            color = "black") +
+  xlab("Date 2022")+ ylab("WT (m)")+
+  scale_x_date(labels=date_format('%b'), date_breaks = '1 month')
+
+plot_HM1_2023 <- wt_all %>%
+  filter(Station_ID=="HM1") %>%
+  filter(year==2023)%>%
+  filter(LEVEL>-1)%>%
+ggplot(aes(Date,LEVEL)) +
+  geom_step(aes(x = Date, y = LEVEL), 
+            direction = 'mid',
+            linewidth = 1,
+            color = "black") +
+  xlab("Date 2023")+ ylab("WT (m)")+
+  scale_x_date(labels=date_format('%b'), date_breaks = '1 month')
+
+grid.arrange(plot_HM1_2020, plot_HM1_2021, plot_HM1_2022, plot_HM1_2023, ncol=1)
+```
+
+The data from HM1 seems correct, with varied values throughout the time period and with a 'roof' at about 0cm, although the data from Jan to May 2021 seems incorrect both by being extremely low in the beginning of the year when the ground is frozen and covered by snow and extremely high (0.5m) in March to mid-May. HM1 is set on higher, drier grounds than HM2 and HM3, with shallow(-ish) peat. These values seems implausible.
+
+## Filter data for the growth season (May to October)
+
+I only want to include the data for the growth season. I'm including all of May and all of September for now (except for 2023, where we cut the data to end of August, as we retrieved the water loggers in the beginning of September). Maybe May needs to be shortened to mid, but lets look at the data first. Then we avoid the 'weird' data from the winter periods. I'm not really that interested in the winter time data anyways.
+
+```{r}
+wt_season <- wt_all %>%     
+  filter((year >= 2020 & year < 2023) & (month >= 5 & month <= 9) | (year == 2023) & (month >= 5 & month<9))
+
+#Create julian date column
+wt_season$jday <- yday(wt_season$Date)
+wt_season$month_name <- format(wt_season$Date,"%B")
+wt_season$month_name <- factor(wt_season$month_name, levels = month.name)
+#write.csv(wt_season, file="./data/wt_season.csv") 
+```
+
+Then let's look at the data at HM1 again
+
+#### HM1 (Stormyra)
+
+```{r}
+wt_season %>%
+ filter(Station_ID=='HM1')%>%
+  group_by(year(Date)) %>%
+  plot_time_series(DateTime, LEVEL,
+                   .facet_scales = "free", .smooth=FALSE, 
+                   .interactive = TRUE,
+                   .title='Water table (m) at HM1')
+```
+
+The water table at HM1 is mainly up around 0cm, but with some dips down to as much as -30cm.
+
+#### HM2 (Stormyra):
+
+```{r}
+wt_season %>%
+ filter(Station_ID=='HM2')%>%
+  group_by(year(Date)) %>%
+  plot_time_series(DateTime, LEVEL,
+                   .facet_scales = "free", .smooth=FALSE, 
+                   .interactive = TRUE,
+                   .title='Water table (m) at HM2')
+```
+
+It seems very little responsive, with only changes of 4cm.
+
+This one has not logged properly and I need to exclude the data.
+
+#### HM3 (Stormyra)
+
+```{r}
+wt_season %>%
+ filter(Station_ID=='HM3')%>%
+  group_by(year(Date)) %>%
+  plot_time_series(DateTime, LEVEL,
+                   .facet_scales = "free", .smooth=FALSE, 
+                   .interactive = TRUE,
+                   .title='Water table (m) at HM3')
+```
+
+HM3 looks very similar to HM1, but slightly higher. This is corresponding with the observations.
+
+#### BSM1 (Bukkastakkmyra)
+
+```{r}
+wt_season %>%
+ filter(Station_ID=='BSM1')%>%
+  group_by(year(Date)) %>%
+  plot_time_series(DateTime, LEVEL,
+                   .facet_scales = "free", .smooth=FALSE, 
+                   .interactive = TRUE,
+                   .title='Water table (m) at BSM1')
+```
+
+BSM1 has not been working properly after 2021. It seems quite clear that I need to exclude the data from 2022 and 2023.
+
+#### BSM2 (Bukkastakkmyra)
+
+```{r}
+wt_season %>%
+ filter(Station_ID=='BSM2')%>%
+  group_by(year(Date)) %>%
+  plot_time_series(DateTime, LEVEL,
+                   .facet_scales = "free", .smooth=FALSE, 
+                   .interactive = TRUE,
+                   .title='Water table (m) at BSM2')
+```
+
+Everything is ok with this one.
+
+#### BSM3 (Bukkastakkmyra)
+
+```{r}
+wt_season %>%
+ filter(Station_ID=='BSM3')%>%
+  group_by(year(Date)) %>%
+  plot_time_series(DateTime, LEVEL,
+                   .facet_scales = "free", .smooth=FALSE, 
+                   .interactive = TRUE,
+                   .title='Water table (m) at BSM3')
+```
+
+Everything fine with this one as well.
+
+Both BSM2 and BSM3 seem to be quite stable at closer to -10cm, and barely reach 0cm (water table at surface level). They might have been compensate somewhat wrongly (a few cm), but it might not matter very much. The trend is still clear, with stable water tables close to the surface (\>-20cm).
+
+```{r}
+wt_all %>%
+ filter(Station_ID=='BSM3')%>%
+  group_by(year(Date)) %>%
+  plot_time_series(DateTime, LEVEL,
+                   .facet_scales = "free", .smooth=FALSE, 
+                   .interactive = TRUE,
+                   .title='Water table (m) at BSM3')
+```
+
+I'm not getting that much more out of looking at the whole year either. I need to check the numbers against the few real time measures I have.
+
+#### VSM1 (Vestersetermyra)
+
+```{r}
+wt_season %>%
+ filter(Station_ID=='VSM1')%>%
+  group_by(year(Date)) %>%
+  plot_time_series(DateTime, LEVEL,
+                   .facet_scales = "free", .smooth=FALSE, 
+                   .interactive = TRUE,
+                   .title='Water table (m) at VSM1')
+
+```
+
+#### VSM2 (Vestersetermyra)
+
+```{r}
+wt_season %>%
+ filter(Station_ID=='VSM2')%>%
+  group_by(year(Date)) %>%
+  plot_time_series(DateTime, LEVEL,
+                   .facet_scales = "free", .smooth=FALSE, 
+                   .interactive = TRUE,
+                   .title='Water table (m) at VSM2')
+```
+
+VSM1 and VSM2 had a weird start of growth season in 2020, and goes quite low several times in 2021, while staying relatively higher in 2022 and 2023. I don't have real time measurements from this location, as it was raining in field the day we were supposed to do measurements (and the measurement method needs dry conditions). I need to check it up with precipitation data, but the measurements from VSM1 and VSM2 seem to be of similar nature.
+
+#### Similar plots created by ggplot
+
+I have to use Julian dates to get the plots aligned by year.
+
+```{r}
+# Get unique Station_IDs
+unique_stations <- unique(wt_season$Station_ID)
+
+# Create a separate figure for each Station_ID
+for (station in unique_stations) {
+  station_data <- wt_season%>%
+    filter(Station_ID == station)
+  
+  station_season_plot <- station_data %>%
+    ggplot(aes(x = jday, y = LEVEL, color = factor(month_name))) +
+    geom_line(na.rm=TRUE) +
+    labs(title = paste("Water Table Levels for Station ID", station),
+         x = "Julian Date",
+         y = "Mean WT",
+         color = "Month") +
+    geom_hline(yintercept=-0.2, linetype='dashed', color='blue')+
+    theme_minimal() +
+    facet_grid(year~.)+
+    scale_color_viridis_d() + 
+    theme(legend.position = "bottom")
+  
+  print(station_season_plot)
+}
+```
+
+## Remove the data from the malfunctioning stations
+
+```{r}
+wt_season <- wt_season %>%
+  filter(!(year %in%  c('2022', '2023') & Station_ID=='BSM1')) %>%
+  filter(Station_ID!='HM2')
+
+#Update the csv as well
+#write.csv(wt_season, file="./data/wt_season.csv")   
+```
+
+# Creating variables
+
+## Daily mean, max and min WT within growth season
+
+```{r}
+#Testing the summarise_by_time function
+daily_means_2 <- wt_season %>%
+  group_by(Station_ID) %>%
+ summarise_by_time(.date_var=DateTime,
+                    .by="day",
+                    daily_mean = mean(LEVEL), daily_max = max(LEVEL), daily_min= min(LEVEL))
+
+write.csv(daily_means_2, file="./data/wt_daily_means.csv")
+daily_means_2
+```
+
+## Monthly mean, max and min WT
+
+```{r}
+monthly_summary <- wt_season %>% 
+ group_by(Station_ID)%>%
+  summarise_by_time(.date_var=DateTime, 
+                    .by="month",
+                    monthly_mean = mean(LEVEL), monthly_max = max(LEVEL), monthly_min = min(LEVEL) )
+
+monthly_summary$month <- format(monthly_summary$DateTime, '%B')
+monthly_summary$month <- factor(monthly_summary$month, levels = month.name)
+monthly_summary$year <- year(monthly_summary$DateTime)
+print(monthly_summary)
+```
+
+```{r}
+monthly_summary%>%
+ ggplot() +
+  geom_point(aes(x= month, y=monthly_min, color='blue')) +
+  geom_point(aes(x=month, y=monthly_mean, color='green'))+
+  geom_point(aes(x=month, y=monthly_max, color='red')) +
+  labs(x = "Month", y = "Water table", color="Water table levels (min, mean, max)") +
+theme_minimal() +
+    facet_grid(Station_ID~year, scales="free_y")+
+  theme(axis.text.x = element_text(angle = 45, hjust = 1))+
+    theme(legend.position = "bottom")
+```
+
+This plot isn't perfect, as I don't know how to change the labels for various geom_lines. It should ideally be transformed to a long dataset with all min,max and mean in the same column.
