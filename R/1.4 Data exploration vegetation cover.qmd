@@ -259,7 +259,8 @@ nut_var <- nut_var %>%
   mutate(Treatment = ifelse(Treatment %in% c('SP'), 'S', Treatment)) %>%
 mutate_at(c('Field','Plot','Location','Treatment'), as.factor) %>%
   rename(Sublocation=Field) %>%
-  rename(Block=Plot)
+  rename(Block=Plot) %>%
+  dplyr::select(-c('WAL #', Sample_ID, Burial_Date, Retrieval_Date, '#Anion', '#Cation'))
 ```
 
 Joining the revegetation dataset with the explanatory variables:
@@ -276,9 +277,6 @@ reveg_var2 <- reveg_var2 %>%
 
 reveg_var <- reveg_var2
 rm(reveg_var2)       
-
-reveg_var <- reveg_var %>%
-  dplyr::select(-c('WAL #', Sample_ID, Burial_Date, Retrieval_Date, '#Anion', '#Cation'))
 
 reveg_var <- reveg_var %>%
   dplyr::select(-c(Notes.x, Notes.y))

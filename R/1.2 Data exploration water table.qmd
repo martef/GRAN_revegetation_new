@@ -290,14 +290,14 @@ wt_season <- wt_season %>%
 
 ```{r}
 #Testing the summarise_by_time function
-daily_means_2 <- wt_season %>%
+daily_means <- wt_season %>%
   group_by(Station_ID) %>%
  summarise_by_time(.date_var=DateTime,
                     .by="day",
                     daily_mean = mean(LEVEL), daily_max = max(LEVEL), daily_min= min(LEVEL))
 
-write.csv(daily_means_2, file="./data/wt_daily_means.csv")
-daily_means_2
+#write.csv(daily_means, file="./data/wt_daily_means.csv")
+daily_means
 ```
 
 ## Monthly mean, max and min WT
@@ -329,3 +329,131 @@ theme_minimal() +
 ```
 
 This plot isn't perfect, as I don't know how to change the labels for various geom_lines. It should ideally be transformed to a long dataset with all min,max and mean in the same column.
+
+## Overall summary for the whole growth season
+
+```{r}
+gs <-wt_season%>%
+  group_by(Station_ID, year)%>%
+  summarise_by_time(.date_var=DateTime,
+                    .by="year", gs_mean = mean(LEVEL), gs_max = max(LEVEL), gs_min = min(LEVEL) )
+gs
+```
+
+## Days with WT below -0.2m within growth season
+
+```{r}
+daily_means <- daily_means %>%
+  mutate(year=as.factor(year(DateTime))) %>%
+  mutate(month=as.factor(month(DateTime)))
+
+total_days_below_minus_0.2 <- daily_means %>% 
+  filter(daily_mean < -0.2) %>% 
+  group_by(Station_ID, year) %>% 
+  summarise(total_days = n_distinct(DateTime))%>%
+  ungroup()%>%
+ complete(Station_ID, year, fill = list(total_days = 0)) %>%
+ungroup()
+print(total_days_below_minus_0.2, n = Inf)
+
+# Create a data frame with all combinations of year, month, and Station_ID
+all_combinations <- expand.grid(
+  year = unique(daily_means$year),
+  Station_ID = unique(daily_means$Station_ID)
+)
+
+# Join the data frame with all combinations with the calculated data
+total_days_below_minus_0.2_complete <- left_join(all_combinations, total_days_below_minus_0.2, by = c("year", "Station_ID"))
+total_days_below_minus_0.2_complete$total_days[is.na(total_days_below_minus_0.2_complete$total_days)] <- 0
+
+#This is not perfect, as it creates zeros for years that were not measured. BSM was not measured in 2020.
+
+total_days_below_minus_0.2_complete <- total_days_below_minus_0.2_complete %>%
+   filter(!(Station_ID %in% c("BSM1", "BSM2", "BSM3") & year == '2020'))
+
+total_days_below_minus_0.2_complete
+```
+
+```{r}
+# Count the days with a daily mean below -0.2 per month and station
+days_below_minus_0.2_month <- daily_means %>%
+  filter(daily_mean < -0.2) %>%
+  group_by(Station_ID, year, month) %>%
+  summarise(total_days = n_distinct(DateTime))%>%
+ ungroup()
+
+# Create a data frame with all combinations of year, month, and Station_ID
+all_combinations <- expand.grid(
+  year = unique(daily_means$year),
+  month = unique(daily_means$month),
+  Station_ID = unique(daily_means$Station_ID)
+)
+
+# Join the data frame with all combinations with the calculated data
+days_below_minus_0.2_month_complete <- left_join(all_combinations, days_below_minus_0.2_month, by = c("year", "month", "Station_ID"))
+days_below_minus_0.2_month_complete$total_days[is.na(days_below_minus_0.2_month_complete$total_days)] <- 0
+
+#This is not perfect either, as it creates zeros for years that were not measured. BSM was not measured in 2020.
+
+days_below_minus_0.2_month_complete <- days_below_minus_0.2_month_complete %>%
+   filter(!(Station_ID %in% c("BSM1", "BSM2", "BSM3") & year == 2020))
+days_below_minus_0.2_month_complete
+```
+
+```{r}
+ggplot(total_days_below_minus_0.2_complete, aes(x = Station_ID, y = total_days, fill = Station_ID)) +
+  geom_bar(position="dodge", stat = "identity") +
+  labs(x = "", y = "Total Days", fill='Station') +
+  theme_minimal()+
+  theme(axis.text.x = element_blank())+
+  facet_wrap(~year)
+```
+
+```{r}
+ggplot(days_below_minus_0.2_month_complete, aes(x = month, y = total_days, fill = Station_ID)) +
+  geom_col(position='dodge') +
+  labs(x = "Month", y = "Total Days", fill='Station') +
+  theme_minimal()+
+facet_wrap(~year)
+
+```
+
+## Consecutive days with WT below -0.2m
+
+```{r}
+df <- daily_means %>%
+  mutate(consecutive_days = daily_mean < -0.2) %>%
+  group_by(Station_ID, year) %>%
+  mutate(consecutive_days = cumsum(consecutive_days) - cummax((!consecutive_days) * cumsum(consecutive_days))) %>%
+  ungroup()
+
+result <- df %>%
+  group_by(Station_ID, year) %>%
+  summarise(consecutive_days_count = max(consecutive_days)) %>%
+  ungroup()
+
+result
+```
+
+## Combine variables into one table
+
+Now to create variables that I can include with the vegetation data.
+
+I need to create one table with data of growth season max/min/mean WT, total days \<-0.2 and consecutive days with \<-0.2 from each station each year.
+
+```{r}
+gs <- gs %>% 
+  select(-c('DateTime')) %>%
+  mutate(year=as.factor(year))
+
+
+final_variables <- result %>%
+  full_join(gs, by=c('Station_ID','year'))
+final_variables <- final_variables %>%
+  full_join(total_days_below_minus_0.2_complete, by=c('Station_ID', 'year'))
+
+final_variables %>%
+  rename(consecutive_days_low_gs = consecutive_days_count, total_days_low_gs = total_days)
+
+#write.csv(final_variables, '../data/WT_variables.csv')
+```
