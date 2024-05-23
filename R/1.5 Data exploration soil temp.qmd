@@ -1,0 +1,199 @@
+---
+title: "1.5 Data exploration soil temp"
+author: "MarteF"
+format: html
+editor: visual
+---
+
+## Packages needed
+
+```{r}
+library(tidyverse)
+library(lubridate)
+library(readr)
+library(timetk)
+
+```
+
+## Uploading and cleaning data
+
+```{r}
+soil <- readr::read_delim('C:/Users/martef/DokumenterIntern/GitHub/GRAN_revegetation_new/data/soil_temp_good.csv', 
+                                  delim = ',',
+                                  col_names = TRUE)
+
+soil <- soil %>%
+  mutate_at(c('Location', 'Sublocation', 'Block', 'Treatment', 'Logger_ID'), as.factor) %>%
+  dplyr::select(-c(`End Of File (LGR S/N: 20857999)`, `End Of File (LGR S/N: 20858002)`, `End Of File (LGR S/N: 20857975)`, 'remove_data')) %>%
+  mutate(year=year(DateTime))
+
+
+
+```
+
+## Visualize the data
+
+```{r}
+# Get unique loggers
+unique_loggers <- unique(soil$Logger_ID)
+
+# Create a list to store individual plots
+plots_list <- list()
+
+# Loop through each logger
+for (logger in unique_loggers) {
+  # Filter data for the current logger
+  logger_data <- soil %>%
+    filter(Logger_ID == logger)
+
+  # Print the number of rows for the current logger (for debugging)
+  print(paste("Logger:", logger, "Rows:", nrow(logger_data)))
+  
+  # Create a plot for the current logger
+  soil_plot <- logger_data %>%
+    ggplot(aes(x = DateTime, y = Temp)) +
+    geom_line(na.rm = TRUE) +
+    labs(title = paste("Soil Temp", logger),
+         x = "DateTime",
+         y = "Soil Temp",
+         ) +
+    theme_minimal()
+  
+  # Print the number of rows for the current logger (for debugging)
+  print(paste("Logger:", logger, "Rows:", nrow(logger_data)))
+  
+  # Store the plot in the list
+  plots_list[[as.character(logger)]] <- soil_plot
+}
+
+# Check the length of the plots_list
+print(paste("Length of plots_list:", length(plots_list)))
+
+# Print the plots from the list
+for (logger_plot in plots_list) {
+  print(logger_plot)
+}
+```
+
+## Compare C and M
+
+### Visually
+
+```{r}
+ soil_plot <- soil %>%
+    ggplot(aes(x = DateTime, y = Temp, color=Treatment)) +
+    geom_line(na.rm = TRUE) +
+    labs(title = "Soil Temp",
+         x = "DateTime",
+         y = "Soil Temp") +
+    theme_minimal()+
+   facet_wrap(Treatment~.)
+ 
+ soil_plot
+```
+
+There could be a difference here. The peaks seems lower in M, especially first season (2021) and in the third (2023). While they look a lot more similar in second (2022).
+
+The data from 2022 includes many loggers that might have been pushed up towards the surface, so might not be fully reliable.
+
+There seem to be some sampling in 2023, but I think that is only one logger, and should be removed.
+
+```{r}
+soil %>%
+  filter(year(DateTime)=='2023') %>%
+  distinct(Logger_ID)
+```
+
+```{r}
+# Filter data to exclude year 2023, as that is only one logger
+soil <- soil %>%
+filter(year(DateTime) !="2023")
+```
+
+### Statistically
+
+How do I test this best? With all data included or aggregated down to month or similar?
+
+Soil temp \~Treatment ?
+
+As simple as that? Is this a linear regression?
+
+```{r}
+# Manual specification of breakpoints
+breaks <- c(-10,-9,-8,-7,-6,-5,-4,-3, -2, -1, 0, 1, 2, 3,4,5,6,7,8,9,10,11,12,13,14,15,16,17,18,19,20,21,22,23,24,25,26,27,28,29,30, 31,32,33,34,35,36,37,38)
+
+min(soil$Temp)
+# Plotting histogram
+hist(soil$Temp, breaks = breaks, xlab = "Temperatures")
+
+```
+
+The data ALMOST look normally distributed, with the extreme exception of temperatures around 0...
+
+I'm not really interested in the winter temperatures. If I subset the data to only growth season, I might just loose most of this issue, and end up with normally distributed data.
+
+```{r}
+# Filter data to include only dates from 1 May to September 30 each year
+soil_growth <- soil %>%
+  filter(format(DateTime, "%m-%d") >= "05-01" & format(DateTime, "%m-%d") <= "09-30")
+
+# View the results
+head(soil_growth)
+```
+
+```{r}
+# Plotting histogram
+hist(soil_growth$Temp, breaks = breaks, xlab = "Temperatures")
+```
+
+Way better!
+
+```{r}
+soil_plot2 <- soil_growth %>%
+    ggplot(aes(x = DateTime, y = Temp, color=Treatment)) +
+    geom_line(na.rm = TRUE) +
+    labs(title = "Soil Temp",
+         x = "DateTime",
+         y = "Soil Temp") +
+    theme_minimal()+
+   facet_wrap(Treatment~.)
+ 
+ soil_plot2
+```
+
+## Create monthly means, max and min
+
+```{r}
+#Daily means
+soil_daily <- soil_growth %>%
+  group_by(Location, Sublocation, Block, Treatment, Logger_ID, year) %>%
+ summarise_by_time(.date_var=DateTime,
+                    .by="day",
+                    daily_mean = mean(Temp), daily_max = max(Temp), daily_min= min(Temp))
+
+write.csv(soil_daily, file="../data/soil_daily.csv")
+soil_daily
+
+
+```
+
+```{r}
+soil_monthly <- soil_growth %>% 
+ group_by(Location, Sublocation, Block, Treatment, Logger_ID, year)%>%
+  summarise_by_time(.date_var=DateTime, 
+                    .by="month",
+                    monthly_mean = mean(Temp), monthly_max = max(Temp), monthly_min = min(Temp) )
+
+soil_monthly <- soil_monthly %>%
+  mutate(month = factor(format(DateTime, '%B'), levels = month.name))
+
+print(soil_monthly)
+```
+
+```{r}
+soil_mean_season <-soil_growth %>%
+  group_by(Location, Sublocation, Block, Treatment, Logger_ID, year)%>%
+  summarise_by_time(.date_var=DateTime,
+                    .by="year", soil_gs_mean = mean(Temp), soil_gs_max = max(Temp), soil_gs_min = min(Temp) )
+soil_mean_season
+```

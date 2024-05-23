@@ -13,7 +13,7 @@ library(readr)
 library(lubridate)
 ```
 
-# Upload and clean dataset
+# Uploading and cleaning dataset
 
 ```{r}
 df <- readr::read_delim('C:/Users/martef/DokumenterIntern/GitHub/GRAN_revegetation_new/data/PRS_results.csv', 

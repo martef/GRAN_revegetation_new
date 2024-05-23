@@ -16,7 +16,7 @@ library(gridExtra)
 
 ```
 
-## Uploading the data
+## Uploading data
 
 ```{r}
 wt_all <- readr::read_delim('C:/Users/martef/DokumenterIntern/GitHub/GRAN_revegetation_new/data/wt_all.csv', 
