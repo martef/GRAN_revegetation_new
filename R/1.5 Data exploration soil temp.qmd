@@ -188,6 +188,7 @@ soil_monthly <- soil_monthly %>%
   mutate(month = factor(format(DateTime, '%B'), levels = month.name))
 
 print(soil_monthly)
+#write.csv(soil_monthly, file='../data/soil_monthly.csv')
 ```
 
 ```{r}
@@ -196,4 +197,6 @@ soil_mean_season <-soil_growth %>%
   summarise_by_time(.date_var=DateTime,
                     .by="year", soil_gs_mean = mean(Temp), soil_gs_max = max(Temp), soil_gs_min = min(Temp) )
 soil_mean_season
+
+#write.csv(soil_mean_season, file='../data/soil_mean_season.csv')
 ```
