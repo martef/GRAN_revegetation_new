@@ -1,0 +1,167 @@
+---
+title: "2.1 Models vegetation"
+author: "Martef"
+format: html
+editor: visual
+---
+
+# Packages needed
+
+```{r}
+library(brms) # bayesian approach to glmm, but with easier steps 
+library(posterior) # tools for working with posterior and prior distributions 
+library(lme4) # fit GLMM in frequentist framework 
+library(tidyverse) # everything for data wrangling 
+library(dplyr) # some more for data wrangling 
+library(ggplot2) # everything for figures 
+library(rstan) 
+library(bayesplot) 
+library(loo)  
+library(sjPlot)
+library(insight)
+rstan_options(auto_write = TRUE) 
+options(mc.cores = parallel::detectCores()) #To Make Stan run faster?
+```
+
+# Upload data
+
+```{r}
+reveg_var <- read_delim('./data/reveg_var.csv', 
+                                  delim = ',',
+                                  col_names = TRUE)
+
+
+```
+
+I haven't fixed the issue with values in Slope and Roughness earlier. These have values from the initial year, but no values for the following years. This value does not change, so should be similar all years.
+
+```{r}
+#Fill in values of Slope and Roughness from the initial year unto the following years:
+reveg_var <- reveg_var %>%
+  group_by(Location, Sublocation, Block, Treatment_ID) %>%
+  mutate(
+    Roughness = if_else(is.na(Roughness), first(Roughness, order_by = t_year), Roughness),
+    Slope = if_else(is.na(Slope), first(Slope, order_by = t_year), Slope)
+  ) %>%
+  ungroup()
+```
+
+```{r}
+reveg_var <- reveg_var %>% 
+  select( -1) %>%
+  mutate_at(c('year', 'month', 'Location', 'Sublocation', 'Block', 'Treatment_ID', 'Treatment', 'Name', 'Station_ID'), as.factor) %>%
+  mutate_at(c('Pb', 'Al', 'B', 'Zn', 'Cu', 'Mn', 'Fe', 'P'), as.numeric) %>%
+  select('Date','year','month', 'Name','Location','Sublocation', 'Block', 'Treatment', 'Treatment_ID', 'Station_ID', everything()) %>%
+  rename(WT_consecutive_days_below = consecutive_days_count, WT_total_days_below=total_days, WT_mean=gs_mean, WT_max=gs_max, WT_min=gs_min) %>%
+  rename(NO3_N = 'NO3-N',NH4_N = 'NH4-N')
+  
+
+```
+
+Must keep in mind that I might need to prepare a dataset without the references, or without plots with no WT data (references plus a few sublocations/Stations (HM2 and BSM1, I think), to avoid problems with NAs.
+
+# Sphagnum
+
+All models run with 4000 iterations with 1000 as warmup and a thinning of 3
+
+Prepare a dataset without the references
+
+```{r}
+reveg_var_noRef <- reveg_var %>%   filter(!Treatment=="R")
+```
+
+Prepare a dataset without the reference plots and without plots with no WT data
+
+```{r}
+reveg_var_noRef_noNA_WT <- reveg_var_noRef %>%   
+  filter(!is.na(WT_mean))  
+```
+
+### Model 1
+
+Model run with beta distribution i.e. Sphagnum cover tweeked to fit between 0 and 1 with no direct zeros or 1s, over Treatment and t_year.
+
+```{r}
+#model1 <-   brm(Sphagnum_no1/100 ~ Treatment + t_year + (1 | Location/Sublocation/Block),                  
+#                    data=reveg_var,
+#                    zero_inflated_beta(link = "logit", link_phi = "log", link_zi = "logit"),
+#                 chains = 4, # nb of chains
+#                  iter = 4000, # nb of iterations, including burnin
+#                  warmup = 1000, # burnin
+#                  thin = 3,
+#                 control = list(adapt_delta = 0.99))
+```
+
+```{r}
+#saveRDS(model1, "model1.Sph.RDS")
+model1 <- readRDS('R/RDS-files/model1.Sph.RDS')
+```
+
+```{r}
+plot(model1)
+```
+
+```{r}
+summary(model1)
+```
+
+## Model 2
+
+Model run with beta distribution, i.e. Sphagnum cover tweeked to fit between 0 and 1 with no direct 0s and 1s, over Treatment + t_year + WT variables. None of the reference plots are included, but NAs within the WT-variables are still included.
+
+```{r}
+model2 <- brm(Sphagnum_no1/100 ~ Treatment + t_year + WT_total_days_below + WT_consecutive_days_below + WT_mean + (1 | Location/Sublocation/Block),                  
+               data = reveg_var_noRef,
+               family = zero_inflated_beta(link = "logit", link_phi = "log", link_zi = "logit"),
+               chains = 4, # nb of chains
+               iter = 4000, # nb of iterations, including burnin
+               warmup = 1000, # burnin
+               thin = 3,
+               control = list(adapt_delta = 0.99))
+
+```
+
+```{r}
+summary(model2)
+```
+
+This model is obviously not working. It has 355 divergent transitions, and several high values of Rhat (\>1.5).
+
+Let's try the same one without the WT-NAs
+
+```{r}
+model2 <- brm(Sphagnum_no1/100 ~ Treatment + t_year + WT_total_days_below + WT_consecutive_days_below + WT_mean + (1 | Location/Sublocation/Block),                  
+               data = reveg_var_noRef_noNA_WT,
+               family = zero_inflated_beta(link = "logit", link_phi = "log", link_zi = "logit"),
+               chains = 4, # nb of chains
+               iter = 4000, # nb of iterations, including burnin
+               warmup = 1000, # burnin
+               thin = 3,
+               control = list(adapt_delta = 0.99))
+
+```
+
+This model runs nicely, with only 2 divergent transitions.
+
+```{r}
+#saveRDS(model2, "model2.Sph.RDS")
+model2 <- readRDS('R/RDS-files/model2.Sph.RDS')
+```
+
+```{r}
+plot(model2)
+```
+
+```{r}
+summary(model2)
+```
+
+All looks good.
+
+Treatment has a significant positive effect (C vs M and C vs S), and much higher between C-S than C-M.
+
+There is a significant positive difference between years.
+
+There is a slightly negative effect of total days with WT below -20cm, while the amount of consecutive days with WT below -20cm is not significantly impacting.
+
+There is a clear significantly negative effect of low WT (WT_mean).

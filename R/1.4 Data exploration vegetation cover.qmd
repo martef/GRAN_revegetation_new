@@ -8,9 +8,8 @@ editor: visual
 ## Packages needed
 
 ```{r Packages needed, output=FALSE, warning=FALSE}
-#library(easypackages)
-#libraries(tidyverse)
-#install.packages("readr")
+library(tidyverse)
+library(readr)
 library(lubridate)
 
 ```
@@ -19,10 +18,10 @@ library(lubridate)
 
 ```{r Upload datasets, output=FALSE, warning=FALSE}
 
-df <- readr::read_delim('C:/Users/martef/DokumenterIntern/GitHub/GRAN_revegetation_new/data/Revegetering_alldata.csv', 
-                                  delim = ';',
-                                  locale = locale('se', encoding = 'ISO8859-1'),
-                                  col_names = FALSE)
+df <- readr::read_delim('../data/Revegetering_alldata.csv', 
+                       delim = ';',
+                       locale = locale('se', encoding = 'ISO8859-1'),
+                       col_names = FALSE)
 
 #need to switch rows and columns
 reveg = data.frame(t(df)) #Transposing
@@ -182,7 +181,7 @@ Uploading and editing dataset for climate variables (precipitation and air tempe
 
 ```{r, output=FALSE, warning=FALSE}
 #Upload dataset for climate variables
-climvar <- readr::read_delim('C:/Users/martef/DokumenterIntern/GitHub/GRAN_revegetation_new/data/clim_var.csv', 
+climvar <- readr::read_delim('../data/clim_var.csv', 
                                   delim = ',',
                                   col_names = TRUE)
 
@@ -195,7 +194,7 @@ climvar <- climvar %>%
 Uploading and editing dataset for water level variables:
 
 ```{r, output=FALSE, warning=FALSE}
-wtvar <- readr::read_delim('C:/Users/martef/DokumenterIntern/GitHub/GRAN_revegetation/data/WT_variables.csv', 
+wtvar <- readr::read_delim('../data/WT_variables.csv', 
                                   delim = ',',
                                   col_names = TRUE)
 
@@ -247,7 +246,7 @@ Uploading nutrient dataset:
 
 ```{r, warning=FALSE, output=FALSE}
 #Upload nutrient data
-nut_var <- readr::read_delim('C:/Users/martef/DokumenterIntern/GitHub/GRAN_revegetation_new/data/PRS_results.csv', 
+nut_var <- readr::read_delim('../data/PRS_results.csv', 
                                   delim = ';',
                                   col_names = TRUE)
 
@@ -281,6 +280,7 @@ rm(reveg_var2)
 reveg_var <- reveg_var %>%
   dplyr::select(-c(Notes.x, Notes.y))
 
+write.csv(reveg_var, file="../data/reveg_var.csv")
 ```
 
 ## Visual inspection of data
