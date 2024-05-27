@@ -58,19 +58,19 @@ reveg_var <- reveg_var %>%
 
 ```
 
-Must keep in mind that I might need to prepare a dataset without the references, or without plots with no WT data (references plus a few sublocations/Stations (HM2 and BSM1, I think), to avoid problems with NAs.
-
 # Sphagnum
 
-All models run with 4000 iterations with 1000 as warmup and a thinning of 3
+All models run with 4000 iterations with 1000 as warmup and a thinning of 3.
 
-Prepare a dataset without the references
+I need to prepare a dataset without the references, or without plots with no WT data (references plus a few sublocations/Stations (HM2 and BSM1, I think), to avoid problems with NAs.
+
+Preparing a dataset without the references
 
 ```{r}
 reveg_var_noRef <- reveg_var %>%   filter(!Treatment=="R")
 ```
 
-Prepare a dataset without the reference plots and without plots with no WT data
+Preparing a dataset without the reference plots and without plots with no WT data
 
 ```{r}
 reveg_var_noRef_noNA_WT <- reveg_var_noRef %>%   
@@ -104,6 +104,12 @@ plot(model1)
 ```{r}
 summary(model1)
 ```
+
+The model runs nicely.
+
+There is no clear difference between C-M, while C-S and C-R are clearly significant, with much higher Sphagnum levels in the latter two.
+
+There is also a significant positive effect of year since treatment.
 
 ## Model 2
 
@@ -145,7 +151,7 @@ This model runs nicely, with only 2 divergent transitions.
 
 ```{r}
 #saveRDS(model2, "model2.Sph.RDS")
-model2 <- readRDS('R/RDS-files/model2.Sph.RDS')
+model2 <- readRDS('RDS-files/model2.Sph.RDS')
 ```
 
 ```{r}
@@ -162,6 +168,32 @@ Treatment has a significant positive effect (C vs M and C vs S), and much higher
 
 There is a significant positive difference between years.
 
+All CIs are slightly higher in model 2 than in model 1, resulting in C-M being significant in model 2.
+
 There is a slightly negative effect of total days with WT below -20cm, while the amount of consecutive days with WT below -20cm is not significantly impacting.
 
 There is a clear significantly negative effect of low WT (WT_mean).
+
+## Model 3
+
+Sphagnum cover tweeked to fit between 0 and 1 with no direct 0s and 1s, over Treatment + t_year (the reference plots are excluded).
+
+```{r}
+#model3 <-   brm(Sphagnum_no1/100 ~ Treatment + t_year + (1 | Location/Sublocation#/Block),                  data=reveg_var_noRef,
+#                    zero_inflated_beta(link = "logit", link_phi = "log", link_zi = "logit"),
+#                chains = 4, # nb of chains
+#                  iter = 4000, # nb of iterations, including burnin
+#                  warmup = 1000, # burnin
+#                  thin = 3,
+#                cores = 4,
+#                 control = list(adapt_delta = 0.99))
+```
+
+```{r}
+#saveRDS(model3, "model3.Sph.RDS")
+readRDS('RDS-files/model3.Sph.RDS')
+```
+
+```{r}
+getwd()
+```
