@@ -97,17 +97,27 @@ My reason for performing model selection is not to dredge through a large number
 
 ## My models
 
-1.  bayes.brms1 \<- brm(Sphagnum_nozero/100 \~ Treatment \* year + (1 \| Location/Sublocation/Block), data=reveg_var, family = Beta(link = "logit", link_phi = "log") ,
+1.  bayes.brms1 \<- brm(Sphagnum_beta/100 \~ Treatment  + year + (1 \| Location/Sublocation/Block), data=reveg_var, family = Beta(link = "logit", link_phi = "log") , WITH ALL PLOTS
 
-2.  bayes.brms2 \<- brm(Sphagnum_nozero/100 \~ Treatment \* year + (1 \| Location/Sublocation/Block), data=reveg_var, zero_inflated_beta(link = "logit", link_phi = "log", link_zi = "logit"),
+2.  bayes.brms2 \<- brm(Sphagnum_beta/100 \~ Treatment + year + (1 \| Location/Sublocation/Block), data=reveg_var, zero_inflated_beta(link = "logit", link_phi = "log", link_zi = "logit"), WITHOUT REFERENCE PLOTS
 
-3.  bayes.brms3 \<- brm(Sphagnum_nozero/100 \~ Treatment + t_year + (1 \| Location/Sublocation/Block), data=reveg_var, family = Beta(link = "logit", link_phi = "log") ,
+3.  bayes.brms3 \<- brm(Sphagnum_beta/100 \~ Treatment + t_year (1 \| Location/Sublocation/Block), data=reveg_var, family = Beta(link = "logit", link_phi = "log") ,
 
-4.  bayes.brms4 \<- brm(Sphagnum_nozero/100 \~ Treatment + t_year + (1 \| Location/Sublocation/Block), data=reveg_var, zero_inflated_beta(link = "logit", link_phi = "log", link_zi = "logit"),
+4.  bayes.brms4 \<- brm(Sphagnum_beta/100 \~ Treatment + t_year + + WT-variables (1 \| Location/Sublocation/Block), data=reveg_var, zero_inflated_beta(link = "logit", link_phi = "log", link_zi = "logit"), WITHOUT REFERENCE PLOTS AND WITHOUT THE NAs WITHIN WT
 
-5.  bayes.brms5 \<- brm(Sphagnum/100 \~ Treatment + t_year + (1 \| Location/Sublocation/Block), data=reveg_var, zero_inflated_beta(link = "logit", link_phi = "log", link_zi = "logit"),
+5.  bayes.brms5 \<- brm(Sphagnum_beta/100 \~ Treatment + t_year + (1 \| Location/Sublocation/Block), data=reveg_var, zero_inflated_beta(link = "logit", link_phi = "log", link_zi = "logit"),
 
-6.  bayes.brms6 \<- brm(Sphagnum/100 \~ Treatment \* t_year + (1 \| Location/Sublocation/Block), data=reveg_var, zero_inflated_beta(link = "logit", link_phi = "log", link_zi = "logit"),
+6.  bayes.brms6 \<- brm(Sphagnum_beta/100 \~ Treatment \* t_year + (1 \| Location/Sublocation/Block), data=reveg_var, zero_inflated_beta(link = "logit", link_phi = "log", link_zi = "logit"), WITH ALL PLOTS
+
+## Posterior predictive checking (PPC)
+
+The idea behind posterior predictive checking is simple: if a model is a good fit then we should be able to use it to generate data that looks a lot like the data we observed.
+
+If the model fits, then replicated data generated under the model should look similar to observed data. To put it another way, the observed data should look plausible under the posterior predictive distribution.
+
+To generate the data used for posterior predictive checks we simulate from the *posterior predictive distribution*. The posterior predictive distribution is the distribution of the outcome variable implied by a model after using the observed data y (a vector of outcome values), and typically predictors X, to update our beliefs about the unknown parameters N8 in the model.
+
+Using the datasets yrep drawn from the posterior predictive distribution, the functions in the **bayesplot** package produce various graphical displays comparing the observed data y to the replications.
 
 # Overall Sphagnum cover
 
@@ -130,10 +140,21 @@ reveg_var_noRef_noNA_WT <- reveg_var_noRef %>%
 
 ### Model 1
 
-Model run with beta distribution i.e. Sphagnum cover tweeked to fit between 0 and 1 with no direct zeros or 1s, over Treatment and t_year.
+Model run with beta and zero inflated beta distribution i.e. Sphagnum cover tweeked to fit between 0 and 1 with no direct zeros or 1s, over Treatment and t_year.
 
 ```{r}
-# model1 <-   brm(Sphagnum_no1/100 ~ Treatment + t_year + (1 | Location/Sublocation/Block),
+model1.Sph.beta<-   brm(Sphagnum_beta/100 ~ Treatment + t_year + (1 | Location/Sublocation/Block),
+                   data=reveg_var,
+                 Beta(link = "logit", link_phi = "log"),
+                chains = 4, # nb of chains
+                 iter = 4000, # nb of iterations, including burnin
+                 warmup = 1000, # burnin
+                 thin = 3,
+                control = list(adapt_delta = 0.99))
+```
+
+```{r}
+# model1.Sph.zib<-   brm(Sphagnum_beta/100 ~ Treatment + t_year + (1 | Location/Sublocation/Block),
 #                    data=reveg_var,
 #                    zero_inflated_beta(link = "logit", link_phi = "log", link_zi = "logit"),
 #                 chains = 4, # nb of chains
@@ -144,73 +165,87 @@ Model run with beta distribution i.e. Sphagnum cover tweeked to fit between 0 an
 ```
 
 ```{r}
-#saveRDS(model1, "RDS-files/model1.Sph.RDS")
-model1 <- readRDS('RDS-files/model1.Sph.RDS')
+#saveRDS(model1.Sph.beta, "RDS-files/model1.Sph.beta.RDS")
+model1.Sph.beta <- readRDS('RDS-files/model1.Sph.beta.RDS')
+#saveRDS(model1.Sph.zib, 'RDS-files/model1.Sph.zib.RDS')
+model1.Sph.zib <-readRDS('RDS-files/model1.Sph.zib.RDS')
 ```
 
 ```{r}
-plot(model1)
+summary(model1.Sph.beta)
 ```
 
 ```{r}
-summary(model1)
+summary(model1.Sph.zib)
 ```
 
-The model runs nicely.
+The models run ok, although there is over 40 divergent transitions for model1.beta. Rhat and Bulk_ESS is still ok.
+
+There is 12 divergent transitions for model1.zib, but numbers also ok here.
 
 There is no clear difference between C-M, while C-S and C-R are clearly significant, with much higher Sphagnum levels in the latter two.
 
 There is also a significant positive effect of year since treatment.
 
+```{r}
+plot(model1.Sph.beta)
+```
+
+```{r}
+plot(model1.Sph.zib)
+```
+
+There doesn't seem to be any real issues with the transitions, maybe within the Location part of the random variables.
+
+All the levels within the nested random variables are just barely significant.
+
+```{r}
+loo_model1.Sph.beta <- loo(model1.Sph.beta)
+loo_model1.Sph.zib <- loo(model1.Sph.zib)
+
+loo_compare(loo_model1.Sph.beta, loo_model1.Sph.zib)
+```
+
+There is just a tiny difference between the models, with beta being a slightly better fit than zero-inflated beta (elpd-diff -1.1, se 0.1)
+
 ## Model 2
 
-Model run with beta distribution, i.e. Sphagnum cover tweeked to fit between 0 and 1 with no direct 0s and 1s, over Treatment + t_year + WT variables. None of the reference plots are included, but NAs within the WT-variables are still included.
+Sphagnum cover tweeked to fit between 0 and 1 with no direct 0s and 1s, over Treatment + t_year. None of the reference plots are included..
 
 ```{r}
-#model2 <- brm(Sphagnum_no1/100 ~ Treatment + t_year + WT_total_days_below + #WT_consecutive_days_below + WT_mean + (1 | Location/Sublocation/Block),                  
-#               data = reveg_var_noRef,
-#               family = zero_inflated_beta(link = "logit", link_phi = "log", link_zi = "logit"),
-#               chains = 4, # nb of chains
-#               iter = 4000, # nb of iterations, including burnin
-#               warmup = 1000, # burnin
-#               thin = 3,
-#               control = list(adapt_delta = 0.99))
-
+model2.Sph.beta <- brm(Sphagnum_beta/100 ~ Treatment + t_year + (1 | Location/Sublocation/Block),
+              data = reveg_var_noRef,
+              Beta(link = "logit", link_phi = "log"),
+              chains = 4, # nb of chains
+              iter = 4000, # nb of iterations, including burnin
+              warmup = 1000, # burnin
+              thin = 3,
+              control = list(adapt_delta = 0.99))
 ```
 
 ```{r}
-#summary(model2)
-```
-
-This model is obviously not working. It has 355 divergent transitions, and several high values of Rhat (\>1.5).
-
-Let's try the same one without the WT-NAs
-
-```{r}
-#model2 <- brm(Sphagnum_no1/100 ~ Treatment + t_year + WT_total_days_below + WT_consecutive_days_below + WT_mean + (1 | Location/Sublocation/Block),  #                
-#               data = reveg_var_noRef_noNA_WT,
-#               family = zero_inflated_beta(link = "logit", link_phi = "log", link_zi = "logit"),
-#               chains = 4, # nb of chains
-#               iter = 4000, # nb of iterations, including burnin
-#               warmup = 1000, # burnin
-#               thin = 3,
-#               control = list(adapt_delta = 0.99))
+model2.Sph.zib <- brm(Sphagnum_beta/100 ~ Treatment + t_year + (1 | Location/Sublocation/Block),
+              data = reveg_var_noRef,
+              family = zero_inflated_beta(link = "logit", link_phi = "log", link_zi = "logit"),
+              chains = 4, # nb of chains
+              iter = 4000, # nb of iterations, including burnin
+              warmup = 1000, # burnin
+              thin = 3,
+              control = list(adapt_delta = 0.99))
 
 ```
 
-This model runs nicely, with only 2 divergent transitions.
+These model run ok, with only 5 and 2 divergent transitions.
 
 ```{r}
-#saveRDS(model2, "RDS-files/model2.Sph.RDS")
-model2 <- readRDS('RDS-files/model2.Sph.new.RDS')
+# saveRDS(model2.Sph.beta, "RDS-files/model2.Sph.beta.RDS")
+# saveRDS(model2.Sph.zib, 'RDS-files/model2.Sph.zib.RDS')
+model2.Sph.beta <- readRDS('RDS-files/model2.Sph.beta.RDS')
+model2.Sph.zib <- readRDS('RDS-files/model2.Sph.zib.RDS')
 ```
 
 ```{r}
-plot(model2)
-```
-
-```{r}
-summary(model2)
+summary(model2.Sph.beta)
 ```
 
 All looks good.
@@ -219,26 +254,29 @@ Treatment has a significant positive effect (C vs M and C vs S), and much higher
 
 There is a significant positive difference between years.
 
-All CIs are slightly higher in model 2 than in model 1, resulting in C-M being significant in model 2.
+```{r}
+loo_model2.Sph.beta <- loo(model2.Sph.beta)
+loo_model2.Sph.zib <- loo(model2.Sph.zib)
 
-There is a slightly negative effect of total days with WT below -20cm, while the amount of consecutive days with WT below -20cm is not significantly impacting.
+loo_compare(loo_model2.Sph.beta, loo_model2.Sph.zib)
+```
 
-There is a clear significantly negative effect of low WT (WT_mean).
+Same here as with model 1, only a slight difference between the models with beta and zero-inflated beta in favour of beta.
 
 ## Model 3
 
-Sphagnum cover tweeked to fit between 0 and 1 with no direct 0s and 1s, over Treatment + t_year (the reference plots are excluded).
+Sphagnum cover tweeked to fit between 0 and 1 with no direct 0s and 1s, over Treatment + t_year + WT-variables. The reference plots and the plots with NAs within WT are excluded.
 
 ```{r}
-model3 <-   brm(Sphagnum_no1/100 ~ Treatment + t_year + (1 | Location/Sublocation/Block),                  
-              data=reveg_var_noRef,
-              zero_inflated_beta(link = "logit", link_phi = "log", link_zi = "logit"),
-              chains = 4, # nb of chains
-              iter = 4000, # nb of iterations, including burnin
-              warmup = 1000, # burnin
-              thin = 3,
-              cores = 4,
-              control = list(adapt_delta = 0.99))
+model3.Sph.beta <-   brm(Sphagnum_beta/100 ~ Treatment + t_year + + WT_total_days_below + WT_consecutive_days_below + WT_mean + (1 | Location/Sublocation/Block),
+                         data = reveg_var_noRef_noNA_WT,
+                         Beta(link = "logit", link_phi = "log"),
+                         chains = 4, # nb of chains
+                         iter = 4000, # nb of iterations, including burnin
+                         warmup = 1000, # burnin
+                         thin = 3,
+                         cores = 4,
+                         control = list(adapt_delta = 0.99))
 ```
 
 ```{r}
@@ -254,12 +292,18 @@ summary(model3)
 plot(model3)
 ```
 
+All CIs are slightly higher in model 2 than in model 1, resulting in C-M being significant in model 2.
+
+There is a slightly negative effect of total days with WT below -20cm, while the amount of consecutive days with WT below -20cm is not significantly impacting.
+
+There is a clear significantly negative effect of low WT (WT_mean).
+
 ## Model 4
 
-Sphagnum cover tweeked to fit between 0 and 1 with no direct 0s and 1s, over Treatment + t_year. Without the reference plots and the plots with no water table measurements, so it's comparable to model 2.
+Model run with zero inflated beta distribution. Sphagnum cover tweeked to fit between 0 and 1 with no direct 0s and 1s, over Treatment + t_year. Without the reference plots and the plots with no water table measurements, so it's comparable to model 2.
 
 ```{r}
-# model4 <-   brm(Sphagnum_no1/100 ~ Treatment + t_year + (1 | Location/Sublocation/Block),                  
+# model4 <-   brm(Sphagnum_no1/100 ~ Treatment + t_year + (1 | Location/Sublocation/Block),
 #                 data=reveg_var_noRef_noNA_WT,
 #                 zero_inflated_beta(link = "logit", link_phi = "log", link_zi = "logit"),
 #                 chains = 4, # nb of chains
@@ -286,16 +330,6 @@ plot(model4)
 ```{r}
 loo(model2, model4)
 ```
-
-## Posterior predictive checking (PPC)
-
-The idea behind posterior predictive checking is simple: if a model is a good fit then we should be able to use it to generate data that looks a lot like the data we observed.
-
-If the model fits, then replicated data generated under the model should look similar to observed data. To put it another way, the observed data should look plausible under the posterior predictive distribution.
-
-To generate the data used for posterior predictive checks we simulate from the *posterior predictive distribution*. The posterior predictive distribution is the distribution of the outcome variable implied by a model after using the observed data y (a vector of outcome values), and typically predictors X, to update our beliefs about the unknown parameters N8 in the model.
-
-Using the datasets yrep drawn from the posterior predictive distribution, the functions in the **bayesplot** package produce various graphical displays comparing the observed data y to the replications.
 
 ```{r}
 pp_check(model1, ndraws = 100, type = 'dens_overlay')
@@ -330,6 +364,11 @@ model4.beta <-   brm(Sphagnum_nozero/100 ~ Treatment + t_year + (1 | Location/Su
 ```
 
 ```{r}
+#saveRDS(model4.beta, 'RDS-files/model4.Sph.beta.RDS')
+readRDS(model4.beta, 'RDS-files/model4.Sph.beta.RDS')
+```
+
+```{r}
 summary(model4.beta)
 ```
 
@@ -340,6 +379,69 @@ pp_check(model4.beta, ndraws = 100, type = 'dens_overlay')
 ```{r}
 loo(model4, model4.beta)
 ```
+
+It seems like the beta model is the better predictor over the zero-inflated beta model.
+
+The elpd diff is 0 to -667 for model4.beta vs model4, i.e. higher score of elpd for the beta model.
+
+I need to rerun the other models with beta distribution as well.
+
+```{r}
+model4.nozero <-   brm(Sphagnum_nozero/100 ~ Treatment + t_year + (1 | Location/Sublocation/Block),
+                data=reveg_var_noRef_noNA_WT,
+                zero_inflated_beta(link = "logit", link_phi = "log", link_zi = "logit"),
+                chains = 4, # nb of chains
+                iter = 4000, # nb of iterations, including burnin
+                warmup = 1000, # burnin
+                thin = 3,
+                cores = 4,
+                control = list(adapt_delta = 0.99))
+```
+
+```{r}
+pp_check(model4.nozero, ndraws = 100, type = 'dens_overlay')
+```
+
+```{r}
+loo(model4, model4.beta, model4.nozero)
+```
+
+```{r}
+model3.beta <-   brm(Sphagnum_nozero/100 ~ Treatment + t_year + (1 | Location/Sublocation/Block),
+              data=reveg_var_noRef,
+              Beta(link = "logit", link_phi = "log"),
+              chains = 4, # nb of chains
+              iter = 4000, # nb of iterations, including burnin
+              warmup = 1000, # burnin
+              thin = 3,
+              cores = 4,
+              control = list(adapt_delta = 0.99))
+```
+
+```{r}
+summary(model3.beta)
+```
+
+```{r}
+pp_check(model3.beta, ndraws = 100, type = 'dens_overlay')
+```
+
+```{r}
+loo(model3, model3.beta)
+```
+
+```{r}
+model1.beta <-   brm(Sphagnum_no1/100 ~ Treatment + t_year + (1 | Location/Sublocation/Block),
+                   data=reveg_var,
+                   Beta(link = "logit", link_phi = "log"),
+                chains = 4, # nb of chains
+                 iter = 4000, # nb of iterations, including burnin
+                 warmup = 1000, # burnin
+                 thin = 3,
+                control = list(adapt_delta = 0.99))
+```
+
+## Model 5
 
 # Overall Sphagnum cover CHANGE
 
@@ -359,6 +461,33 @@ reveg_var_noRef <- reveg_var_noRef %>%
   mutate(Change_Total_no1=case_when(Change_Total<0 ~ 0,
                                     Change_Total==100.0 ~ 99.9,
                                     TRUE ~ Change_Total))
+```
+
+```{r}
+reveg_var %>%
+  filter(!is.na(Change_Total)) %>%  # Exclude NA values in the Sphagnum column
+  ggplot(aes(x = Change_Total)) +
+  geom_histogram(binwidth = 0.1, fill = "blue", color = "black", alpha = 0.7) +
+  labs(title = "Histogram of Sphagnum Cover Change Values",
+       x = "Sphagnum Cover Change",
+       y = "Frequency")
+```
+
+```{r}
+reveg_var %>%
+  filter(!is.na(Change_Total)) %>%  # Exclude NA values in the Sphagnum column
+  ggplot(aes(x = Change_Total)) +
+  geom_histogram(binwidth = 0.1, fill = "blue", color = "black", alpha = 0.7) +
+  labs(title = "Histogram of Sphagnum Cover Change Values",
+       x = "Sphagnum Cover Change",
+       y = "Frequency") +
+  facet_wrap(~Treatment)
+```
+
+```{r}
+reveg_var %>%
+  filter(Treatment=='R') %>%
+  select(Change_Total)
 ```
 
 ## Model 1
@@ -381,11 +510,11 @@ readRDS(model1.change, 'RDS-files/model1.Sph.change.RDS')
 ```
 
 ```{r}
-summary(model5)
+summary(model1.change)
 ```
 
 ```{r}
-plot(model5)
+plot(model1.change)
 ```
 
 ```{r}

@@ -163,16 +163,25 @@ Tweeking the dataset to fit various types of models (binomial, beta, gamma)
 ```{r}
 #Tweeking the dataset to fit binomial with no zeros 
 reveg <- reveg %>%   
-  mutate(Sphagnum_nozero=case_when(Sphagnum==0~ +0.01,                             TRUE~Sphagnum)) 
+  mutate(Sphagnum_nozero=case_when(Sphagnum==0~ +0.0001,                             TRUE~Sphagnum)) 
 
 #Tweeking the dataset to fit integer requirements
 reveg <- reveg %>%
   mutate(Sphagnum_int=case_when(Sphagnum==0.1~ 1,                             TRUE~Sphagnum))
 
-#Tweeking the dataset to fit beta with no 1s
+#Tweeking the dataset to fit zero-inflated beta with no 1s (but can have 0s)
 reveg <- reveg %>%
-  mutate(Sphagnum_no1=case_when(Sphagnum==100~99.9,
+  mutate(Sphagnum_no1=case_when(Sphagnum==100~99.99,
                                 TRUE~Sphagnum))
+#Tweeking the dataset to fit beta with no 1s OR no 0s
+reveg <- reveg %>%
+  mutate(Sphagnum_beta=case_when(Sphagnum_no1==0~ +0.0001,
+                                 TRUE~Sphagnum_no1))
+```
+
+```{r}
+reveg %>%
+  select(c(Location, Sublocation, Block, Treatment, t_year, Sphagnum, Sphagnum_nozero, Sphagnum_no1, Sphagnum_beta))
 ```
 
 ## Combining vegetation data with other explanatory variables
@@ -321,7 +330,7 @@ reveg_var %>%
   facet_wrap(~ t_year)
 ```
 
-Overall Sphagnum cover changes per location:
+Overall Sphagnum cover per location:
 
 ```{r, warning=FALSE}
 plot_SP_Location <- reveg_var %>%
