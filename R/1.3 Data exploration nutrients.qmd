@@ -1,0 +1,276 @@
+---
+title: "1.3 Data exploration nutrients"
+author: "MarteF"
+format: html
+editor: visual
+---
+
+# Packages needed
+
+```{r}
+library(tidyverse)
+library(readr)
+library(lubridate)
+library(purrr)
+library(brms) # bayesian approach to glmm, but with easier steps 
+library(posterior) # tools for working with posterior and prior distributions 
+library(lme4) # fit GLMM in frequentist framework 
+library(rstan) 
+library(bayesplot) 
+library(loo)  
+library(sjPlot)
+library(insight)
+rstan_options(auto_write = TRUE) 
+options(mc.cores = parallel::detectCores()) #To Make Stan run faster?
+library(glmmTMB)
+library(DHARMa)
+
+```
+
+# Uploading and cleaning dataset
+
+```{r}
+df <- readr::read_delim('../data/PRS_results.csv', 
+                                  delim = ';',
+                                  col_names = TRUE)
+
+df$Burial_Date <- dmy(df$Burial_Date)
+df$Retrieval_Date <- dmy(df$Retrieval_Date)
+df <- df %>%
+  rename(Sublocation=Field) %>%
+mutate_at(c('Sublocation', 'Plot','Location','Treatment'), as.factor) %>%
+  mutate_at(c('P', 'Fe', 'Mn', 'Cu', 'Zn', 'B', 'Pb', 'Al'), as.double) %>%
+  rename(NO3_N = 'NO3-N', NH4_N = 'NH4-N')
+
+```
+
+## Nutrient list:
+
+NO3-N: Nitrate Nitrogen
+
+NH4-N: Ammonium
+
+Ca: Calcium
+
+Mg: Magnesium
+
+K: Potassium (Kalium)
+
+P: Phosphorous
+
+Fe: Iron
+
+Mn: Manganese
+
+Cu: Copper
+
+Zn: Zink
+
+B: Boron
+
+S: Sulphur
+
+Pb: Lead
+
+Al: Aluminium
+
+Cd: Cadmium
+
+Which micronutrients do what?
+
+K, Ca, Mg essential nutrients for plant growth
+
+Boron, Fe, Mn, Cu, and Zn are essential micronutrients that play important roles in biochemical reactions related to plant growth.
+
+Boron shortage affects many metabolic processes which ultimately impacts photosynthetic function ([Blevins and Lukaszewski 1998](https://cdnsciencepub.com/doi/full/10.1139/cjss-2016-0130#core-ref9)), whereas Fe is an integral part of chlorophyll that is involved in photosynthesis ([Marschner 2012](https://cdnsciencepub.com/doi/full/10.1139/cjss-2016-0130#core-ref53)). Manganese is involved in photosynthetic O~2~ evolution (Hill reaction) in the chloroplast ([Rutherford 1989](https://cdnsciencepub.com/doi/full/10.1139/cjss-2016-0130#core-ref67)) while Cu deficiency results in decreased photosynthetic electron transport ([Mizuno et al. 1982](https://cdnsciencepub.com/doi/full/10.1139/cjss-2016-0130#core-ref56)). Zinc is essential for chlorophyll synthesis, including the activation of several enzymes and oxido-reduction reactions ([Alloway 2008](https://cdnsciencepub.com/doi/full/10.1139/cjss-2016-0130#core-ref3)). In addition, micronutrients are involved in various enzymes and other physiologically active molecules associated with cell wall development, respiration, enzyme activities, and N fixation ([Rengel 2003](https://cdnsciencepub.com/doi/full/10.1139/cjss-2016-0130#core-ref63); [Schulin et al. 2010](https://cdnsciencepub.com/doi/full/10.1139/cjss-2016-0130#core-ref69)).
+
+# Visualise variables
+
+```{r}
+#Create long-format of nutrients 
+df_long <- df %>% pivot_longer(12:26, names_to = 'Nutrients', values_to = "Level")
+```
+
+```{r}
+# Get unique Nutrients
+unique_nutrients <- unique(df_long$Nutrients)
+
+# Create a separate figure for each Station_ID
+for (nutrient in unique_nutrients) {
+ nutrient_data <- df_long%>%
+    filter(Nutrients == nutrient)
+  
+  nutrient_plot <- nutrient_data %>%
+    ggplot(aes(x = Location, y = Level, color = Treatment)) +
+    geom_boxplot() +
+    labs(title = paste("Levels of Nutrient", nutrient),
+         x = "Location",
+         y = "Nutrient level",
+         color = "Treatment type") +
+    theme_minimal() +
+    scale_color_viridis_d() + 
+    theme(legend.position = "bottom")
+  
+  print(nutrient_plot)
+}
+```
+
+There's some clear differences between the locations:
+
+-   **NO3-N:** BSM has slightly higher levels, but prob not significantly so, the other two have about 0. The mean at BSM is almost max 1, but has outliers in the range 12-80.
+
+-   **NH4-N:** BSM and HM similar levels (about 30), while VSM has very little (about 3?)
+
+-   **Ca:** Lowest at HM, medium at BSM and highest at VSM, perhaps not significant between BSM and VSM, but prob for HM vs rest. Levels between 500 and 800
+
+-   **Mg:** Lowest at BSM (but only one measurement in all treatments? hm), prob not significantly different between HM and VSM, but higher at HM (levels 1000-1200, BSM 750)
+
+-   **K**: Clearly difference in treatments: Higher in M and SP contra C at all locations (levels ca 50-70 in M, 20-25 in C). No differences between locations
+
+-   **P:** Almost 0 at BSM, 1-2 at HM and 2-3 at VSM?
+
+-   **Fe:** Higher at BSM and HM than VSM. Maybe slightly higher in M vs C, but prob not significant. Levels 150-250 and almost 0
+
+-   **Mn:** Very low levels at BSM and HM (near 0), while high at VSM (17ish)
+
+-   **Cu:** Similarily low at BSM and HM (around 0.1), while slightly higher at VSM (mean almost same, 0.2ish, but clearly longer upper tail)
+
+-   **Zn**: Only measurement from SP at BSM? The SP matches M at HM (about 4), while C is much lower (1-1.5). Only measurement from C at VSM (and maybe also only one measurement?) which is way higher (10)
+
+-   **B**: Similar at all locations and treatments (levels 0.2-0.4)
+
+-   **S:** Seems to be lower in M and SP than C. Somewhat lower at HM (300ish and 200ish) than BSM (500ish and 300ish), highest at VSM (700ish and 500ish)
+
+-   **Pb:** Similar at all locations and treatments (levels 0.1-0.3)
+
+-   **Al:** Lowest at HM (levels 20ish), medium at BSM (levels 75ish-but lower in SP(50)), highest at VSM (levels 125)
+
+-   **Cd**: Registered levels at BSM (0.03-0.05), while 0 levels at HM and VSM
+
+```{r}
+
+```
+
+# Analyses of nutrient variation
+
+I can exclude models for B, Pb which have similar levels at all locations and treatments.
+
+```{r}
+# Function to calculate binwidth based on the range of values
+calculate_binwidth <- function(Level) {
+  range <- max(Level) - min(Level)
+  # Adjust the factor to control the binwidth
+  binwidth <- range / 30  # Divide by 30 for roughly 30 bins, adjust as needed
+  return(binwidth)
+}
+
+# Create histograms with dynamic binwidth
+df_long %>%
+  filter(!is.na(Level)) %>%
+  split(.$Nutrients) %>%
+  map(~ {
+    binwidth <- calculate_binwidth(.x$Level)
+    plot <- ggplot(data = .x, aes(x = Level)) +
+      geom_histogram(binwidth = binwidth, fill = "blue", color = "black", alpha = 0.7) +
+      labs(title = paste("Histogram of", unique(.x$Nutrients), "Level"),
+           x = "Level",
+           y = "Frequency")
+    ggsave(filename = paste0("Histogram_of_", unique(.x$Nutrients), ".png"), plot = plot)
+    plot
+  }) -> histograms
+
+# Display the histograms
+walk(histograms, print)
+```
+
+Most are normally distributed-ish, while a few is right-skewed with a lot of zeros or low values.
+
+```{r}
+model1.Cd <-   brm(Cd ~ Treatment + Location + (1 | Location/Sublocation/Plot),     
+                    data=df,
+                   skew_normal(link = "identity", link_sigma = "log", link_alpha = "identity"),
+                 chains = 4, # nb of chains
+                  iter = 4000, # nb of iterations, including burnin
+                  warmup = 1000, # burnin
+                thin = 3,
+              cores = 4,
+                  control = list(adapt_delta = 0.99))
+```
+
+```{r}
+summary(model1.Cd)
+```
+
+```{r}
+pp_check(model1.Cd, ndraws = 100, type = 'dens_overlay')
+```
+
+```{r}
+# Define a custom family for zero-inflated Gaussian
+zero_inflated_gaussian <- custom_family(
+  "zero_inflated_gaussian", 
+  dpars = c("mu", "sigma", "zi"),
+  links = c("identity", "log", "logit"),
+  lb = c(NA, 0, 0),
+  ub = c(NA, NA, 1),
+  type = "real"
+)
+
+# Define the Stan code for the zero-inflated Gaussian family
+stan_code <- "
+  real zero_inflated_gaussian_lpdf(real y, real mu, real sigma, real zi) {
+    if (y == 0) {
+      return log_mix(zi, 1, normal_lpdf(y | mu, sigma));
+    } else {
+      return log1m(zi) + normal_lpdf(y | mu, sigma);
+    }
+  }
+
+  real zero_inflated_gaussian_rng(real mu, real sigma, real zi) {
+    if (bernoulli_rng(zi) == 1) {
+      return 0;
+    } else {
+      return normal_rng(mu, sigma);
+    }
+  }
+"
+
+# Compile the custom family
+stanvars <- stanvar(scode = stan_code, block = "functions")
+
+model1.Cd_zi <- brm(
+  bf(Cd ~ Treatment + (1 | Location/Sublocation/Plot), zi ~ 1),     
+  data = df,
+  family = zero_inflated_gaussian,
+  stanvars = stanvars,
+  chains = 4, # number of chains
+  iter = 4000, # number of iterations, including burnin
+  warmup = 1000, # burnin
+  thin = 3,
+  cores = 4,
+  control = list(adapt_delta = 0.99, max_treedepth = 15)
+)
+
+```
+
+```{r}
+# Fit the zero-inflated Gaussian model
+model1.Cd_zi_glmmTMB <- glmmTMB(
+  Cd ~ Treatment + (1 | Location/Sublocation/Plot),
+  ziformula = ~1,
+  family = gaussian(),
+  data = df
+)
+
+# Summary of the model
+summary(model1.Cd_zi_glmmTMB)
+```
+
+```{r}
+# Diagnostic plots
+simulationOutput <- simulateResiduals(fittedModel = model1.Cd_zi_glmmTMB, plot = TRUE)
+
+# Check residuals
+plot(simulationOutput)
+
+```
