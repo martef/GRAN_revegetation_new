@@ -1,0 +1,115 @@
+---
+title: "2.2 Hypothesis testing Sphagnum cover"
+author: "MarteF"
+format: html
+editor: visual
+---
+
+# Packages needed
+
+```{r}
+library(brms) # bayesian approach to glmm, but with easier steps 
+library(posterior) # tools for working with posterior and prior distributions 
+library(lme4) # fit GLMM in frequentist framework 
+library(tidyverse) # everything for data wrangling 
+library(dplyr) # some more for data wrangling 
+library(ggplot2) # everything for figures 
+library(rstan) 
+library(bayesplot) 
+library(loo)  
+library(sjPlot)
+library(insight)
+rstan_options(auto_write = TRUE) 
+options(mc.cores = parallel::detectCores()) #To Make Stan run faster?
+```
+
+# Upload data
+
+```{r}
+reveg_var <- read_delim('../data/reveg_var.csv', 
+                                  delim = ',',
+                                  col_names = TRUE)
+
+#Fill in values of Slope and Roughness from the initial year unto the following years:
+reveg_var <- reveg_var %>%
+  group_by(Location, Sublocation, Block, Treatment_ID) %>%
+  mutate(
+    Roughness = if_else(is.na(Roughness), first(Roughness, order_by = t_year), Roughness),
+    Slope = if_else(is.na(Slope), first(Slope, order_by = t_year), Slope)
+  ) %>%
+  ungroup()
+```
+
+```{r}
+reveg_var <- reveg_var %>% 
+  select( -1) %>%
+  mutate_at(c('year', 'month', 'Location', 'Sublocation', 'Block', 'Treatment_ID', 'Treatment', 'Name', 'Station_ID'), as.factor) %>%
+  mutate_at(c('Pb', 'Al', 'B', 'Zn', 'Cu', 'Mn', 'Fe', 'P'), as.numeric) %>%
+  select('Date','year','month', 'Name','Location','Sublocation', 'Block', 'Treatment', 'Treatment_ID', 'Station_ID', everything()) %>%
+  rename(WT_consecutive_days_below = consecutive_days_count, WT_total_days_below=total_days, WT_mean=gs_mean, WT_max=gs_max, WT_min=gs_min) %>%
+  rename(NO3_N = 'NO3-N',NH4_N = 'NH4-N')
+  
+```
+
+# Creating new dataset for year 3 only
+
+```{r}
+H1.Sph <- reveg_var %>%
+  filter(t_year==3) %>%
+  select(Location, Sublocation, Block, Treatment, Roughness, Slope, Sphagnum, Change_Total, Sphagnum_nozero, Sphagnum_int, Sphagnum_no1, Sphagnum_beta)
+
+
+
+```
+
+```{r}
+WT <- reveg_var %>%
+  filter(Treatment != 'R') %>%
+  filter(!is.na(Station_ID)) %>%
+  select(c(year, Location, Sublocation, Station_ID, t_year, WT_consecutive_days_below, WT_mean, WT_max, WT_min, WT_total_days_below)) %>%
+   distinct(year, Station_ID, .keep_all = TRUE)
+
+WT2 <- WT %>%
+  group_by(Location, Sublocation) %>%
+ summarise(WT_consecutive_days_below_max = max(WT_consecutive_days_below),
+           WT_mean = mean(WT_mean, na.rm = TRUE),
+           WT_total_days_below_sum = sum(WT_total_days_below))
+
+WT2
+```
+
+```{r}
+H1.Sph <- full_join(H1.Sph, WT2, by=c('Location', 'Sublocation'))
+```
+
+# Hypothesis testing
+
+These are my three hypothesis:
+
+Sphagnum cover would
+
+H1) respond positively to *Sphagnum* reintroduction (with mulch), *OR* that  
+
+H2) Sphagnum cover was indifferent to the addition of *Sphagnum* fragments, but reacted to the added mulch, OR,  
+
+H3) Sphagnum cover would be better explained by a model that only includes water table parameters. 
+
+H2 represents the most complex model, and this was fitted like this: 
+
+*Sphagnum cover \~ Treatment + mean_seasonal_WT + consecutive_day_with_WT_below\_-0.2m_within_season + (1\|Location/Sublocation)* 
+
+```{r}
+
+H1.Sph.beta<-   brm(Sphagnum_beta/100 ~ Treatment + WT_total_days_below_sum + WT_consecutive_days_below_max + WT_mean + (1 | Location/Sublocation),
+                   data=H1.Sph,
+                 Beta(link = "logit", link_phi = "log"),
+                chains = 4, # nb of chains
+                 iter = 4000, # nb of iterations, including burnin
+                 warmup = 1000, # burnin
+                 thin = 3,
+                control = list(adapt_delta = 0.99, max_treedepth = 15))
+```
+
+```{r}
+summary(H1.Sph.beta)
+```

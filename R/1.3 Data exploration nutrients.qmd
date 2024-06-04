@@ -24,6 +24,7 @@ rstan_options(auto_write = TRUE)
 options(mc.cores = parallel::detectCores()) #To Make Stan run faster?
 library(glmmTMB)
 library(DHARMa)
+library(vegan)
 
 ```
 
@@ -101,6 +102,7 @@ for (nutrient in unique_nutrients) {
     filter(Nutrients == nutrient)
   
   nutrient_plot <- nutrient_data %>%
+    filter(!is.na(Sample_ID)) %>%
     ggplot(aes(x = Location, y = Level, color = Treatment)) +
     geom_boxplot() +
     labs(title = paste("Levels of Nutrient", nutrient),
@@ -113,6 +115,8 @@ for (nutrient in unique_nutrients) {
   
   print(nutrient_plot)
 }
+
+
 ```
 
 There's some clear differences between the locations:
@@ -125,7 +129,7 @@ There's some clear differences between the locations:
 
 -   **Mg:** Lowest at BSM (but only one measurement in all treatments? hm), prob not significantly different between HM and VSM, but higher at HM (levels 1000-1200, BSM 750)
 
--   **K**: Clearly difference in treatments: Higher in M and SP contra C at all locations (levels ca 50-70 in M, 20-25 in C). No differences between locations
+-   **K**: Clearly difference in treatments: Higher in M and SP vs C at all locations (levels ca 50-70 in M, 20-25 in C). No differences between locations
 
 -   **P:** Almost 0 at BSM, 1-2 at HM and 2-3 at VSM?
 
@@ -148,10 +152,53 @@ There's some clear differences between the locations:
 -   **Cd**: Registered levels at BSM (0.03-0.05), while 0 levels at HM and VSM
 
 ```{r}
+# Calculate overall mean and standard deviation for each nutrient
+overall_stats <- nutrient_data %>%
+  summarise(across(NO3_N:Cd, list(mean = ~ mean(. , na.rm = TRUE), 
+                                  sd = ~ sd(. , na.rm = TRUE)))) %>%
+pivot_longer(cols = everything(),
+               names_to = c("Nutrient", ".value"),
+               names_pattern = "(.+)_(.+)")
 
+# Display overall statistics
+overall_stats
+```
+
+```{r}
+# Calculate mean, standard deviation, and sample size per location
+location_stats <- nutrient_data %>%
+  group_by(Location) %>%
+  summarise(across(NO3_N:Cd, list(mean = ~ mean(., na.rm = TRUE), 
+                                  sd = ~ sd(., na.rm = TRUE)),
+                   .names = "{col}_{fn}")) %>%
+  pivot_longer(cols = -Location,
+               names_to = c("Nutrient", ".value"),
+               names_pattern = "(.+)_(.+)") %>%
+  ungroup()
+
+# Display statistics per location
+location_stats
+```
+
+```{r}
+# Calculate mean and standard deviation per treatment
+treatment_stats <- nutrient_data %>%
+  group_by(Treatment) %>%
+  summarise(across(NO3_N:Cd, list(mean = ~ mean(., na.rm = TRUE), 
+                                  sd = ~ sd(., na.rm = TRUE)),
+                   .names = "{col}_{fn}")) %>%
+  pivot_longer(cols = -Treatment,
+               names_to = c("Nutrient", ".value"),
+               names_pattern = "(.+)_(.+)") %>%
+  ungroup()
+
+# Display statistics per treatment
+treatment_stats
 ```
 
 # Analyses of nutrient variation
+
+## Histograms
 
 I can exclude models for B, Pb which have similar levels at all locations and treatments.
 
@@ -183,94 +230,138 @@ df_long %>%
 walk(histograms, print)
 ```
 
-Most are normally distributed-ish, while a few is right-skewed with a lot of zeros or low values.
+Some are normally distributed-ish, while a few is right-skewed with a lot of zeros or low values.
+
+## Ordination
 
 ```{r}
-model1.Cd <-   brm(Cd ~ Treatment + Location + (1 | Location/Sublocation/Plot),     
-                    data=df,
-                   skew_normal(link = "identity", link_sigma = "log", link_alpha = "identity"),
-                 chains = 4, # nb of chains
-                  iter = 4000, # nb of iterations, including burnin
-                  warmup = 1000, # burnin
-                thin = 3,
-              cores = 4,
-                  control = list(adapt_delta = 0.99))
+
+# Prepare the data
+nutrient_data <- df %>%
+  filter(!is.na(Sample_ID)) %>%
+  select(Location, Treatment, NO3_N:Cd)
+
+# Standardize the nutrient data
+nutrient_matrix <- nutrient_data %>%
+  select(NO3_N:Cd) %>%
+  as.matrix()
+
+nutrient_matrix
 ```
 
 ```{r}
-summary(model1.Cd)
+# Perform PCA
+pca_result <- rda(nutrient_matrix, scale = TRUE)
+
+# Extract PCA scores
+pca_scores <- scores(pca_result, display = "sites") %>%
+  as_tibble() %>%
+  bind_cols(nutrient_data %>% select(Location, Treatment))
+
+# Extract PCA loadings for nutrients
+pca_loadings <- scores(pca_result, display = "species") %>%
+  as_tibble(rownames = "Nutrient")
+
+# Create the PCA plot with nutrient labels
+pca_plot <- ggplot(pca_scores, aes(x = PC1, y = PC2)) +
+  geom_point(aes(color = Location, shape = Treatment), size = 3) +
+  stat_ellipse(aes(group = Treatment, color = Treatment), type = "norm", level = 0.95) +
+  geom_text(data = pca_loadings, aes(x = PC1, y = PC2, label = Nutrient), color = "black", vjust = 1.5) +
+  labs(title = "PCA of Nutrient Levels by Location and Treatment",
+       x = "PC1",
+       y = "PC2") +
+  theme_minimal()
+
+# Display the plot
+print(pca_plot)
+
+ggsave("pca_nutrient_levels.png", plot = pca_plot, width = 10, height = 8, dpi = 300)
+
+```
+
+I only have nutrient measurements from treatment S (SP) at BSM, as this was something I supplementet with the second year.
+
+Let's test the PCA with renaming all the SP as M.
+
+```{r}
+# Prepare the data
+nutrient_data2 <- df %>%
+  filter(!is.na(Sample_ID)) %>%
+  select(Location, Treatment, NO3_N:Cd) %>%
+  mutate(Treatment = if_else(Treatment == 'SP', 'M', Treatment))
+
+# Standardize the nutrient data
+nutrient_matrix2 <- nutrient_data2 %>%
+  select(NO3_N:Cd) %>%
+  as.matrix()
 ```
 
 ```{r}
-pp_check(model1.Cd, ndraws = 100, type = 'dens_overlay')
+# Perform PCA
+pca_result2 <- rda(nutrient_matrix2, scale = TRUE)
+
+# Extract PCA scores
+pca_scores2 <- scores(pca_result2, display = "sites") %>%
+  as_tibble() %>%
+  bind_cols(nutrient_data2 %>% select(Location, Treatment))
+
+# Extract PCA loadings for nutrients
+pca_loadings2 <- scores(pca_result2, display = "species") %>%
+  as_tibble(rownames = "Nutrient")
+
+
 ```
 
 ```{r}
-# Define a custom family for zero-inflated Gaussian
-zero_inflated_gaussian <- custom_family(
-  "zero_inflated_gaussian", 
-  dpars = c("mu", "sigma", "zi"),
-  links = c("identity", "log", "logit"),
-  lb = c(NA, 0, 0),
-  ub = c(NA, NA, 1),
-  type = "real"
+# Create the PCA plot with nutrient labels
+pca_plot2 <- ggplot(pca_scores2, aes(x = PC1, y = PC2)) +
+  geom_point(aes(color = Location, shape = Treatment), size = 3) +
+  stat_ellipse(aes(group = Treatment, color = Treatment), type = "norm", level = 0.95) +
+  geom_segment(data = pca_loadings2, aes(x = 0, y = 0, xend = PC1, yend = PC2),
+               arrow = arrow(length = unit(0.3, "cm")), color = "blue", alpha = 0.8) +
+  geom_text(data = pca_loadings2, aes(x = PC1, y = PC2, label = Nutrient), color = "black", vjust = 1.5) +
+  labs(title = "PCA of Nutrient Levels by Location and Treatment",
+       x = "PC1",
+       y = "PC2") +
+  theme_minimal()
+
+# Display the plot
+print(pca_plot2)
+
+#ggsave("pca_nutrient_levels_2.png", plot = pca_plot2, width = 10, height = 8, dpi = 300)
+```
+
+```{r}
+# Extract variance explained by each principal component
+variance_explained <- summary(pca_result2)$cont$importance[2, ]
+
+# Extract loadings for each nutrient
+loadings <- scores(pca_result2, display = "species")
+
+# Combine variance explained and loadings into a tibble for easy viewing
+pca_summary <- tibble(
+  Component = rownames(loadings),
+  Variance_Explained_PC1 = variance_explained[1],
+  Variance_Explained_PC2 = variance_explained[2],
+  Loading_PC1 = loadings[, 1],
+  Loading_PC2 = loadings[, 2]
 )
 
-# Define the Stan code for the zero-inflated Gaussian family
-stan_code <- "
-  real zero_inflated_gaussian_lpdf(real y, real mu, real sigma, real zi) {
-    if (y == 0) {
-      return log_mix(zi, 1, normal_lpdf(y | mu, sigma));
-    } else {
-      return log1m(zi) + normal_lpdf(y | mu, sigma);
-    }
-  }
-
-  real zero_inflated_gaussian_rng(real mu, real sigma, real zi) {
-    if (bernoulli_rng(zi) == 1) {
-      return 0;
-    } else {
-      return normal_rng(mu, sigma);
-    }
-  }
-"
-
-# Compile the custom family
-stanvars <- stanvar(scode = stan_code, block = "functions")
-
-model1.Cd_zi <- brm(
-  bf(Cd ~ Treatment + (1 | Location/Sublocation/Plot), zi ~ 1),     
-  data = df,
-  family = zero_inflated_gaussian,
-  stanvars = stanvars,
-  chains = 4, # number of chains
-  iter = 4000, # number of iterations, including burnin
-  warmup = 1000, # burnin
-  thin = 3,
-  cores = 4,
-  control = list(adapt_delta = 0.99, max_treedepth = 15)
-)
-
+# Display the PCA summary
+print(pca_summary)
 ```
 
 ```{r}
-# Fit the zero-inflated Gaussian model
-model1.Cd_zi_glmmTMB <- glmmTMB(
-  Cd ~ Treatment + (1 | Location/Sublocation/Plot),
-  ziformula = ~1,
-  family = gaussian(),
-  data = df
-)
-
-# Summary of the model
-summary(model1.Cd_zi_glmmTMB)
+pca_summary_sorted_by_PC1 <- pca_summary %>%
+  arrange(desc(Loading_PC1))
+print("PCA Summary sorted by Loading_PC1:")
+print(pca_summary_sorted_by_PC1)
 ```
 
 ```{r}
-# Diagnostic plots
-simulationOutput <- simulateResiduals(fittedModel = model1.Cd_zi_glmmTMB, plot = TRUE)
-
-# Check residuals
-plot(simulationOutput)
-
+# Sort and display PCA summary by Loading_PC2
+pca_summary_sorted_by_PC2 <- pca_summary %>%
+  arrange(desc(Loading_PC2))
+print("PCA Summary sorted by Loading_PC2:")
+print(pca_summary_sorted_by_PC2)
 ```
