@@ -80,6 +80,7 @@ WT2
 
 ```{r}
 H1.Sph <- full_join(H1.Sph, WT2, by=c('Location', 'Sublocation'))
+rm(WT, WT2)
 ```
 
 # Hypothesis testing
