@@ -169,17 +169,18 @@ Uploading nutrient dataset:
 
 ```{r, warning=FALSE, output=FALSE}
 #Upload nutrient data
-df <- readr::read_delim('../data/PRS_results.csv', 
+nut_var <- readr::read_delim('../data/PRS_results.csv', 
                                   delim = ';',
                                   col_names = TRUE)
 
-df$Burial_Date <- dmy(df$Burial_Date)
-df$Retrieval_Date <- dmy(df$Retrieval_Date)
-df <- df %>%
-  rename(Sublocation=Field) %>%
-mutate_at(c('Sublocation', 'Plot','Location','Treatment'), as.factor) %>%
+nut_var$Burial_Date <- dmy(nut_var$Burial_Date)
+nut_var$Retrieval_Date <- dmy(nut_var$Retrieval_Date)
+nut_var <- nut_var %>%
+  rename(Sublocation=Field, Block=Plot) %>%
+mutate_at(c('Sublocation', 'Block','Location','Treatment'), as.factor) %>%
   mutate_at(c('P', 'Fe', 'Mn', 'Cu', 'Zn', 'B', 'Pb', 'Al'), as.double) %>%
-  rename(NO3_N = 'NO3-N', NH4_N = 'NH4-N')
+  rename(NO3_N = 'NO3-N', NH4_N = 'NH4-N') %>%
+  mutate(year = as.factor(year(Burial_Date)))
 
 ```
 
@@ -294,5 +295,9 @@ reveg_var <- reveg_var %>%
 ```
 
 ```{r}
-write.csv(reveg_var, file='../data/reveg_var.csv')
+#write.csv(reveg_var, file='../data/reveg_var.csv')
+```
+
+```{r}
+unique(reveg_var$year)
 ```

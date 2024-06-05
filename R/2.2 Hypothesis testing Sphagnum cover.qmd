@@ -56,6 +56,7 @@ reveg_var <- reveg_var %>%
 ```{r}
 H1.Sph <- reveg_var %>%
   filter(t_year==3) %>%
+  filter(Treatment!='R') %>%
   select(Location, Sublocation, Block, Treatment, Roughness, Slope, Sphagnum, Change_Total, Sphagnum_nozero, Sphagnum_int, Sphagnum_no1, Sphagnum_beta)
 
 
@@ -81,6 +82,9 @@ WT2
 ```{r}
 H1.Sph <- full_join(H1.Sph, WT2, by=c('Location', 'Sublocation'))
 rm(WT, WT2)
+
+H1.Sph <- H1.Sph %>%
+  filter(Treatment!='R')
 ```
 
 # Hypothesis testing
@@ -101,14 +105,17 @@ H2 represents the most complex model, and this was fitted like this: 
 
 ```{r}
 
-H1.Sph.beta<-   brm(Sphagnum_beta/100 ~ Treatment + WT_total_days_below_sum + WT_consecutive_days_below_max + WT_mean + (1 | Location/Sublocation),
-                   data=H1.Sph,
-                 Beta(link = "logit", link_phi = "log"),
-                chains = 4, # nb of chains
-                 iter = 4000, # nb of iterations, including burnin
-                 warmup = 1000, # burnin
-                 thin = 3,
-                control = list(adapt_delta = 0.99, max_treedepth = 15))
+# H1.Sph.beta<-   brm(Sphagnum_beta/100 ~ Treatment + WT_total_days_below_sum + WT_consecutive_days_below_max + WT_mean + (1 | Location/Sublocation),
+#                    data=H1.Sph,
+#                  Beta(link = "logit", link_phi = "log"),
+#                 chains = 4, # nb of chains
+#                  iter = 4000, # nb of iterations, including burnin
+#                  warmup = 1000, # burnin
+#                  thin = 3,
+#                 control = list(adapt_delta = 0.99, max_treedepth = 15))
+
+#saveRDS(H1.Sph.beta, 'RDS-files/H1.Sph.beta.RDS')
+readRDS(H1.Sph.beta, 'RDS-files/H1.Sph.beta.RDS')
 ```
 
 ```{r}
@@ -128,7 +135,88 @@ print(r2)
 ```
 
 ```{r}
-#Generate submodel
+#Generate interaction model
+init_values <- function() {
+  list(
+    b = rep(0, 6),  # assuming 6 fixed effect coefficients
+    sd_1 = 0.1, 
+    sd_2 = 0.1, 
+    z_1 = rnorm(length(unique(H1.Sph$Location)), 0, 0.1),
+    z_2 = rnorm(length(unique(H1.Sph$Sublocation)), 0, 0.1)
+  )
+}
+
+H2.Sph.beta <- brm(
+  Sphagnum_beta/100 ~ Treatment*(WT_total_days_below_sum + WT_consecutive_days_below_max + WT_mean) + (1 | Location/Sublocation),
+  data = H1.Sph,
+  family = Beta(link = "logit", link_phi = "log"),
+  chains = 4,
+  iter = 4000,
+  warmup = 1000,
+  thin = 3,
+  control = list(adapt_delta = 0.99, max_treedepth = 15),
+  init = init_values
+)
+
+#saveRDS(H2.Sph.beta, 'RDS-files/H2.Sph.beta.RDS')
+#readRDS(H2.Sph.beta, 'RDS-files/H2.Sph.beta.RDS')
+```
+
+```{r}
+H2.Sph.beta <- brm(
+  Sphagnum_beta/100 ~ Treatment*(WT_total_days_below_sum) + (1 | Location/Sublocation),
+  data = H1.Sph,
+  family = Beta(link = "logit", link_phi = "log"),
+  chains = 4,
+  iter = 4000,
+  warmup = 1000,
+  thin = 3,
+  control = list(adapt_delta = 0.99, max_treedepth = 15)
+)
+```
+
+```{r}
+init_values <- function() {
+  list(
+    b = rep(0, 6),  # Assuming 6 fixed effect coefficients; adjust as necessary
+    sd_1 = 0.1, 
+    sd_2 = 0.1, 
+    z_1 = rnorm(length(unique(H1.Sph$Location)), 0, 0.1),
+    z_2 = rnorm(length(unique(H1.Sph$Sublocation)), 0, 0.1),
+    shape1 = 1,  # Initial value for the first shape parameter
+    shape2 = 1   # Initial value for the second shape parameter
+  )
+}
+
+H2.Sph.beta <- brm(
+  Sphagnum_beta/100 ~ Treatment*(WT_total_days_below_sum + WT_consecutive_days_below_max + WT_mean) + (1 | Location/Sublocation),
+  data = H1.Sph,
+  family = Beta(link = "logit", link_phi = "log"),
+  chains = 4,
+  iter = 4000,
+  warmup = 1000,
+  thin = 3,
+  control = list(adapt_delta = 0.99, max_treedepth = 15),
+  init = init_values
+)
+```
+
+```{r}
+summary(H2.Sph.beta)
+```
+
+```{r}
+plot(H2.Sph.beta)
+```
+
+```{r}
+# Bayesian R-squared
+r2 <- bayes_R2(H2.Sph.beta)
+print(r2)
+```
+
+```{r}
+#Generate base model
 H3.Sph.beta <- brm(Sphagnum_beta/100 ~ WT_total_days_below_sum + WT_consecutive_days_below_max + WT_mean + (1 | Location/Sublocation),
                    data=H1.Sph,
                  Beta(link = "logit", link_phi = "log"),
@@ -137,6 +225,19 @@ H3.Sph.beta <- brm(Sphagnum_beta/100 ~ WT_total_days_below_sum + WT_consecutive_
                  warmup = 1000, # burnin
                  thin = 3,
                 control = list(adapt_delta = 0.99, max_treedepth = 15))
+
+#saveRDS(H3.Sph.beta, 'RDS-files/H3.Sph.beta.RDS')
+readRDS(H3.Sph.beta, 'RDS-files/H3.Sph.beta.RDS')
+```
+
+```{r}
+summary(H3.Sph.beta)
+```
+
+```{r}
+# Bayesian R-squared
+r2 <- bayes_R2(H3.Sph.beta)
+print(r2)
 ```
 
 ```{r}
@@ -147,20 +248,34 @@ pred_H3 <- posterior_predict(H3.Sph.beta)
 
 #Compare variance explained by full model vs submodel
 var_H1<- apply(pred_H1, 2, var)
-var_H3 a- apply(pred_H3, 2, var)
+var_H3 <- apply(pred_H3, 2, var)
 
 ```
 
 ```{r}
 # Calculate variance explained
-prop_var_H3 <- 1 - var_H3 / var_H1
+prop_var_Treatment <- 1 - var_H3 / var_H1
 
-mean(pror_var_H3)
-cat("Proportion of variance explained by Treatment: ", mean(prop_var_H3), "\n")
+mean(prop_var_Treatment)
+cat("Proportion of variance explained by Treatment: ", mean(prop_var_Treatment), "\n")
 
 ```
 
 ```{r}
-# Marginal effects
-marginal_effects(H1.Sph.beta)
+conditional_effects(H1.Sph.beta)
+```
+
+```{r}
+loo_H1 <- loo(H1.Sph.beta)
+loo_H3 <- loo(H3.Sph.beta)
+
+loo_compare(loo_H1, loo_H3)
+```
+
+```{r}
+pp_check(H1.Sph.beta, ndraws = 100, type = 'dens_overlay')
+```
+
+```{r}
+pp_check(H3.Sph.beta, ndraws = 100, type = 'dens_overlay')
 ```

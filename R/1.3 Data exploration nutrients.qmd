@@ -9,21 +9,8 @@ editor: visual
 
 ```{r}
 library(tidyverse)
-library(readr)
-library(lubridate)
-library(purrr)
-library(brms) # bayesian approach to glmm, but with easier steps 
-library(posterior) # tools for working with posterior and prior distributions 
-library(lme4) # fit GLMM in frequentist framework 
-library(rstan) 
-library(bayesplot) 
-library(loo)  
-library(sjPlot)
-library(insight)
-rstan_options(auto_write = TRUE) 
-options(mc.cores = parallel::detectCores()) #To Make Stan run faster?
 library(ggridges)
-#library(vegan)
+library(vegan)
 #install.packages("vegan")
 ```
 

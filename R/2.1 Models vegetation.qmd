@@ -33,19 +33,6 @@ reveg_var <- read_delim('../data/reveg_var.csv',
 
 ```
 
-I haven't fixed the issue with values in Slope and Roughness earlier. These have values from the initial year, but no values for the following years. This value does not change, so should be similar all years.
-
-```{r}
-#Fill in values of Slope and Roughness from the initial year unto the following years:
-reveg_var <- reveg_var %>%
-  group_by(Location, Sublocation, Block, Treatment_ID) %>%
-  mutate(
-    Roughness = if_else(is.na(Roughness), first(Roughness, order_by = t_year), Roughness),
-    Slope = if_else(is.na(Slope), first(Slope, order_by = t_year), Slope)
-  ) %>%
-  ungroup()
-```
-
 ```{r}
 reveg_var <- reveg_var %>% 
   select( -1) %>%

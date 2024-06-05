@@ -17,7 +17,7 @@ library(RColorBrewer)
 
 ```{r}
 #Upload Sphagnum species dataset 
-sph <- readr::read_delim('C:/Users/martef/DokumenterIntern/GitHub/GRAN_Revegetation/Data/Sphagnum.csv',                                    
+sph <- readr::read_delim('../data/Sphagnum.csv',                                    
                          delim = ';',                                   
                          col_names = TRUE)  
 sph <- sph%>%   
@@ -269,4 +269,11 @@ denplot2 <- ggplot(sph_long_y3, aes(x = Proportion, y = Sph_sp, fill = Sph_sp)) 
 
 ggsave(denplot2, filename='../figures/densityplot_Sphsp_prop.png')
 print(denplot2)
+```
+
+## Save datasets
+
+```{r}
+# write.csv (sph, file='../data/Sph.sp.csv')
+# write.csv (sph_long, file='../data/Sph.sp.long.csv')
 ```
