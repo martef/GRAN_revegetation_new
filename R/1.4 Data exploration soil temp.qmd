@@ -1,5 +1,5 @@
 ---
-title: "1.5 Data exploration soil temp"
+title: "1.4 Data exploration soil temp"
 author: "MarteF"
 format: html
 editor: visual

@@ -1,0 +1,200 @@
+---
+title: "1.7 Data exploration vegetation cover"
+author: "MarteF"
+format: html
+editor: visual
+---
+
+## Packages needed
+
+```{r}
+library(tidyverse)
+library(readr)
+library(lubridate)
+```
+
+## Uploading and cleaning the data
+
+```{r}
+reveg_var <- readr::read_delim('../data/reveg_var.csv', 
+                       delim = ',',
+                       locale = locale('se', encoding = 'ISO8859-1'),
+                       col_names = TRUE)
+
+reveg_var <- reveg_var %>% 
+  select( -1) %>%
+  mutate_at(c('year', 'month', 'Location', 'Sublocation', 'Block', 'Treatment_ID', 'Treatment', 'Name', 'Station_ID'), as.factor) %>%
+  select('Date','year','month', 'Name','Location','Sublocation', 'Block', 'Treatment', 'Treatment_ID', 'Station_ID', everything()) %>%
+  rename(WT_consecutive_days_below = consecutive_days_count, WT_total_days_below=total_days, WT_mean=gs_mean, WT_max=gs_max, WT_min=gs_min) %>%
+  rename(NO3_N = 'NO3-N',NH4_N = 'NH4-N')
+```
+
+### Other vegetation cover
+
+Summarising all the other interesting cover groups (Mulch, Bare_peat, Other_veg, Total_veg)
+
+```{r}
+reveg_var%>%
+  dplyr::select(c(Location, Sublocation, Block, Treatment, Treatment_ID, Sphagnum, Mulch, Bare_peat, t_year, Other_veg, Total_veg, Field, Veg_Ground, Tot_Ground))%>%
+  group_by(Treatment, t_year) %>%
+  summarise(Sph_mean=mean(Sphagnum),
+            Sph_sd= sd(Sphagnum),
+            Sph_max=max(Sphagnum),
+            Mulch_mean = mean(Mulch),
+            Mulch_sd = sd(Mulch),
+            Bare_peat_mean = mean(Bare_peat),
+            Bare_peat_sd = sd(Bare_peat),
+            Other_veg_mean = mean(Other_veg),
+            Other_veg_sd = sd(Other_veg),
+            Other_veg_max = max(Other_veg),
+            Field_mean = mean(Field),
+            Field_sd = sd(Field),
+            Field_max = max(Field),
+            Veg_Ground_mean = mean(Veg_Ground),
+            Veg_Ground_sd = sd(Veg_Ground),
+            Veg_Ground_max = max(Veg_Ground),
+            Tot_Ground_mean = mean(Tot_Ground),
+            Tot_Ground_sd = sd(Tot_Ground),
+            Tot_Ground_max = max(Tot_Ground),
+             total_N = n()) 
+```
+
+It seems like a few of the plots have a very high total vegetation cover. The total sum of vegetation cover comes to slightly more than 100% makes sense, since the evaluation of cover in the field layer and the ground layer may overlap, but it shouldn't become very much more, I think.
+
+I need to take a closer look at those with total vegetation cover of more than 120%.
+
+```{r}
+reveg_var%>%
+  dplyr::select(c(Location, t_year, Sublocation, Block, Treatment, Treatment_ID, Sphagnum, Other_mosses, Livermosses, Lichen, Polytrichum, Racomitrium, Trichophorum, Eriopherum, Heathers, Narthecium, Bet_nan, Other_veg, Veg_Ground, Tot_Ground, Field, Total_veg))%>%
+ filter(Total_veg>120)
+```
+
+There are 21 plots that have total vegetation cover of \>120%.
+
+Of these, 12 exceed 130% vegetation cover.
+
+13 of the plots have \>100% ground layer cover, but only 5 have \>105%. These are the ones I should focus on, I think. Two of these actually have a vegetation ground cover \>100%, but just barely.
+
+Most plots are from the references, where the vegetation in both ground layer and field layer is extensive.
+
+Only two plots are from the experimental plots - HM-3-2-S2 from year3, and VSM-2-1-S2 from year 3.
+
+First has Sphagnum=85 and Eriopherum=60, totalling Total_veg=145. That might not be unreasonable, as these may overlap.
+
+Second has Sphagnum=75 and Eriopherum=40, totaling Total_veg=121.5, which is perfectly fine.
+
+The total ground cover also exceeds 100% in many cases, which shouldn't be possible.
+
+Let's take a closer look at that.
+
+```{r}
+reveg_var%>%
+  dplyr::select(c(Location, Sublocation, Block, Treatment, Treatment_ID, t_year, Sphagnum:Lichen, Bare_peat:Temp_water, Other_veg, Total_veg, Field, Veg_Ground, Tot_Ground))%>%
+  group_by(t_year, Location) %>%
+ filter(Tot_Ground>120)
+```
+
+7 plots have higher ground cover than 120%. Most of this is due to overlap with mulch, and I have gone through the photos of each and double checked and altered any cover percentages that seemed a little wrong. All ok now.
+
+### Exploring specific species groups
+
+Creating long format of species functional groups:
+
+```{r}
+reveg_long <-reveg%>%
+  pivot_longer(Sphagnum:Temp_water, names_to = 'functional_group', values_to = "cover")
+```
+
+Overview of the various species groups in the reference plots:
+
+```{r}
+plot_ref <- reveg_long %>%
+  filter(Treatment=='R') %>%
+  ggplot() +   
+  geom_boxplot()+   
+  aes(x=reorder(functional_group, desc(cover), FUN = median), y=cover) +
+  ylab("Cover of the various functional groups in the reference plots") +
+  theme(axis.text.x = element_text(angle = 90, vjust = 0.5, hjust=1))
+  
+plot_ref +  theme(legend.position="bottom")
+```
+
+The reference plots have a high cover of Sphagnum (about 71% mean), and a decent cover of Narthecium, heathers (eviggrønne busker) and Trichophorum. There's also some litter (about 14%ish), while Eriopherum covers only ca. 3%)
+
+```{r}
+mean_cover <- reveg_long %>%
+  filter(Treatment == 'R') %>%
+  group_by(functional_group) %>%
+  summarise(mean_cover = mean(cover, na.rm = TRUE))
+print(mean_cover)
+```
+
+The natural cover of Eriopherum is quite low, which is interesting to compare to the experimental plots, as this is a plant that increases rapidly in newly rewetted peatlands. In the experimental plots:
+
+```{r}
+plot_eri <- reveg_var %>%
+  filter(!is.na(Eriopherum)) %>%  # Exclude the NA value
+  ggplot() +   
+  geom_boxplot()+   
+  aes(x=Treatment, y=Eriopherum, color=as.factor(t_year)) +
+  ylab("Eriopherum cover") +
+  labs(color = "Growth seasons since treatment") +
+  theme_bw()
+plot_eri +  theme(legend.position="bottom")
+```
+
+```{r}
+mean_cover_eri <- reveg %>%
+  group_by(Treatment, t_year) %>%
+  summarise(mean_cover = mean(Eriopherum, na.rm = TRUE),
+            max_cover = max(Eriopherum, na.rm = TRUE))
+print(mean_cover_eri)
+```
+
+The cover of Eriopherum is higher than in the reference plots in both C, M, and S after 3 years, if not by much. In some specific plots the cover is substantially higher than the references.
+
+Checking if there are other groups that may be of interest in the experimental plots:
+
+```{r}
+plot_fun <- reveg_long %>%
+  filter(Treatment!='R') %>%
+  ggplot(aes(x=reorder(functional_group, desc(cover), FUN = median), y=cover)) +   
+  geom_boxplot()+   
+  ylab("Cover of the various functional groups in the reference plots") +
+  xlab("Functional plant groups (and some other cover groups)") +
+  theme(axis.text.x = element_text(angle = 90, vjust = 0.5, hjust=1)) +
+  facet_wrap(~t_year, ncol = 1)
+  
+plot_fun +  theme(legend.position="bottom")
+```
+
+```{r}
+plot_fun3 <- reveg_long %>%
+  filter(Treatment!='R') %>%
+  filter(t_year==3) %>%
+  ggplot(aes(x=reorder(functional_group, desc(cover), FUN = median), y=cover)) +   
+  geom_boxplot()+   
+  ylab("Cover of the various functional groups in the reference plots") +
+  xlab("Functional plant groups (and some other cover groups)") +
+  theme(axis.text.x = element_text(angle = 90, vjust = 0.5, hjust=1))
+  
+plot_fun3 +  theme(legend.position="bottom")
+```
+
+Most plots have still very little other vegetation than Sphagnum after 3 years.
+
+Some plots have a very high cover of other types of mosses. Same goes for Eriopherum, Heathers and Polytrichum.
+
+```{r}
+plot_hea <- reveg_var %>%
+  filter(!is.na(Heathers)) %>%  # Exclude the NA value
+  ggplot() +   
+  geom_boxplot()+   
+  aes(x=Treatment, y=Heathers, color=as.factor(t_year)) +
+  ylab("Heathers cover") +
+  labs(color = "Growth seasons since treatment") +
+  theme_bw()
+plot_hea +  theme(legend.position="bottom")
+```
+
+There is an interesting increase in heathers within the Sphagnum treatments. This is also partly visible within the mulch plots. The means are still low, but several plots seem to have had a great development in heather cover within the time period. In contrast to the Eriopherum, the Heather cover is still not fully reaching the levels of the references after 3 years.

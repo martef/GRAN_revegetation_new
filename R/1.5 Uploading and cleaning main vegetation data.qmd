@@ -1,0 +1,298 @@
+---
+title: "1.5 Uploading and cleaning main vegetation data"
+author: "MarteF"
+format: html
+editor: visual
+---
+
+## Packages needed
+
+```{r Packages needed, output=FALSE, warning=FALSE}
+library(tidyverse)
+library(readr)
+library(lubridate)
+```
+
+## Uploading and cleaning the data
+
+```{r Upload datasets, output=FALSE, warning=FALSE}
+
+df <- readr::read_delim('../data/Revegetering_alldata.csv', 
+                       delim = ';',
+                       locale = locale('se', encoding = 'ISO8859-1'),
+                       col_names = FALSE)
+
+#need to switch rows and columns
+reveg = data.frame(t(df)) #Transposing
+names(reveg) <- reveg[1,] #Copying header names from row 1
+reveg <- reveg[-1,] #Removing row 1
+
+#Alter various columns and data
+
+reveg[reveg == '<1'] <- '0.1' #change all <1 to 0.1
+reveg <- reveg %>% 
+  rename(Location = Localition) #Fix bad spelling
+reveg$Date <- as.POSIXct(dmy(reveg$Date))
+reveg <- reveg %>% 
+  mutate_at(c('Location', 'Sublocation', 'Block', 'Treatment'), as.factor)
+reveg <- reveg %>% 
+  mutate_at(c(8:37), as.numeric) #Change from character to numeric on multiple columns
+reveg <- reveg %>% 
+  mutate_at(c(9:36), ~replace_na(.,0)) #Replacing NAs with zeros
+
+#Creating columns for year and month
+reveg$year <-as.factor(year(reveg$Date))
+reveg$month <- as.factor(month(reveg$Date))
+
+#Create a column with treatment (C,M,S, R)
+reveg <- reveg %>%
+  rename(Treatment_ID =Treatment) %>%
+  mutate(Treatment=case_when(Treatment_ID==c('S1','S2')~'S',
+                             TRUE~Treatment_ID))
+unique(reveg$Treatment)
+
+#There still seems to be 4 rows with S1 in Treatment
+reveg <- reveg%>%
+  mutate(Treatment=case_when(Treatment==c('S1')~'S',
+                             TRUE~Treatment))
+
+# Change the references to be included as a type of treatment
+reveg <- reveg %>%
+  mutate(Treatment = case_when(
+    Sublocation=="Ref1" ~ "R",
+    Sublocation=="Ref2" ~ "R",
+    TRUE ~ Treatment
+  ))
+
+reveg$Treatment <- as.factor(reveg$Treatment)
+
+#Create a column with year as 0,1 and 2
+reveg <- reveg %>%
+  mutate(t_year = case_when(year=="2020" & Location =="HM" ~ 0,
+                            year=="2021" & Location =="HM" ~ 2,
+                            year=="2022" & Location =="HM" ~ 3,
+                            year=="2020" & Location =="VSM"  ~ 0,
+                            year=="2021" & Location =="VSM" ~ 2,
+                            year=="2022" & Location =="VSM" ~ 3,
+                            year=="2021" & Location =="BSM" ~ 0,
+                            year=="2022" & Location =="BSM" ~ 2,
+                            year=="2023" & Location =="BSM" ~ 3,
+                            year=="2023" & Location =="HM" ~ 3,
+                            year=="2023" & Location =="VSM" ~ 3,
+    TRUE ~ NA_real_
+  ))
+
+reveg <- reveg %>% 
+  relocate(c('Date', 'year', 'month', 'Location', 'Sublocation', 'Block', 'Treatment_ID', 'Treatment', 'Registered_by', 't_year')) #move new columns up front
+
+reveg <- reveg %>% 
+  mutate(Treatment=fct_relevel(Treatment,c("C","M","S","R"))) #Alter the order of the Treatments, so that the references come last
+
+#Fill in values of Slope and Roughness from the initial year unto the following years:
+reveg <- reveg %>%
+  group_by(Location, Sublocation, Block, Treatment_ID) %>%
+  mutate(
+    Roughness = if_else(is.na(Roughness), first(Roughness, order_by = t_year), Roughness),
+    Slope = if_else(is.na(Slope), first(Slope, order_by = t_year), Slope)
+  ) %>%
+  ungroup()
+```
+
+## Combining vegetation data with other explanatory variables
+
+Uploading and editing dataset for climate variables (precipitation and air temperatures):
+
+```{r, output=FALSE, warning=FALSE}
+#Upload dataset for climate variables
+climvar <- readr::read_delim('../data/clim_var.csv', 
+                                  delim = ',',
+                                  col_names = TRUE)
+
+climvar <- climvar %>% 
+  dplyr::select( -1) %>%
+  mutate_at(c('year', 'Name'), as.factor)
+
+```
+
+Uploading and editing dataset for water level variables:
+
+```{r, output=FALSE, warning=FALSE}
+wtvar <- readr::read_delim('../data/WT_variables.csv', 
+                                  delim = ',',
+                                  col_names = TRUE)
+
+wtvar <- wtvar %>% 
+  dplyr::select( -1) %>%
+  mutate(Name=case_when(Station_ID=='BSM1'~ 'Hoydalsmoan',
+                         Station_ID=='BSM2'~'Hoydalsmoan',
+                         Station_ID=='BSM3'~'Hoydalsmoan',
+                          Station_ID=='HM1'~'Hoydalsmoan',
+                          Station_ID=='HM2'~'Hoydalsmoan',
+                          Station_ID=='HM3'~'Hoydalsmoan',
+                          Station_ID=='VSM1'~'Vestersetermyra',
+                          Station_ID=='VSM2'~'Vestersetermyra',
+                                TRUE ~ NA)) %>%
+  mutate_at(c('year', 'Station_ID'), as.factor)
+#Created a column for weather station Name in the water table dataset
+```
+
+Joining the explanatory datasets:
+
+```{r}
+#Joining the explanatory variables datasets
+
+all_var <- wtvar %>%
+  full_join (climvar)
+
+#There's no reason to keep 2019 in the dataset, as I didn't record vegetation that year
+
+all_var <- all_var %>%
+  filter(!year=='2019')
+
+all_var <- all_var%>%
+  relocate(Name)
+
+# The total days with water table < -0.2m (total_days) are set to zero for those stations that didn't have any data (BSM1 in 2022, 2023, and HM2 in 2021, 2022, 2023). I need to change these to NAs
+all_var <- all_var %>%
+  mutate(total_days = case_when(
+    is.na(consecutive_days_count) ~ NA_real_,
+    TRUE ~ total_days
+  ))
+
+#Create similar columns as in reveg dataset
+all_var <- all_var %>%
+  separate('Station_ID', into = c('Location', 'Sublocation'), sep = "(?<=\\D)(?=\\d)|(?<=\\d)(?=\\D)", remove = FALSE)
+
+```
+
+Uploading nutrient dataset:
+
+```{r, warning=FALSE, output=FALSE}
+#Upload nutrient data
+df <- readr::read_delim('../data/PRS_results.csv', 
+                                  delim = ';',
+                                  col_names = TRUE)
+
+df$Burial_Date <- dmy(df$Burial_Date)
+df$Retrieval_Date <- dmy(df$Retrieval_Date)
+df <- df %>%
+  rename(Sublocation=Field) %>%
+mutate_at(c('Sublocation', 'Plot','Location','Treatment'), as.factor) %>%
+  mutate_at(c('P', 'Fe', 'Mn', 'Cu', 'Zn', 'B', 'Pb', 'Al'), as.double) %>%
+  rename(NO3_N = 'NO3-N', NH4_N = 'NH4-N')
+
+```
+
+Joining the revegetation dataset with the explanatory variables:
+
+```{r}
+#Join the revegetation dataset with the variable datasets
+reveg_var <- reveg %>% full_join(nut_var, by=c('year','Location','Sublocation','Block','Treatment'))
+
+reveg_var2 <- reveg_var %>% 
+  left_join(all_var, by=c('Location', 'Sublocation', 'year'))
+
+reveg_var2 <- reveg_var2 %>%
+  mutate_at(c('Location','Sublocation'), as.factor)
+
+reveg_var <- reveg_var2
+rm(reveg_var2)       
+
+reveg_var <- reveg_var %>%
+  dplyr::select(-c(Notes.x, Notes.y))
+```
+
+## Creating new columns for analysis
+
+Create columns with changes in cover of Sphagnum from year 0 to 2 and year 2 to 3, and overall change.
+
+```{r}
+# Create columns with cover change per year and total change
+reveg_var <- reveg_var %>%
+  arrange(Location, Sublocation, Block, Treatment_ID, t_year) %>%
+  group_by(Location, Sublocation, Block, Treatment_ID) %>%
+  mutate(Change_Year = Sphagnum - lag(Sphagnum),
+         Change_Total = Sphagnum - lag(Sphagnum, 2)) %>%
+  ungroup()
+
+# Set NA for the first row of each group (year 0)
+reveg_var$Change_Year[which(reveg_var$t_year == min(reveg_var$t_year))] <- NA
+reveg_var$Change_Total[which(reveg_var$t_year %in% c(min(reveg_var$t_year), min(reveg_var$t_year) + 1))] <- NA
+```
+
+Checking the references that only have data from year 3
+
+```{r}
+reveg_var %>%
+  filter(Treatment=="R") %>%
+  dplyr::select(c(t_year,year, Location, Sublocation, Block, Treatment, Treatment_ID, Sphagnum, Change_Year, Change_Total))
+```
+
+There is only NA in the changes-columns. All good, then.
+
+Creating a column that sums up the total cover of other plants than Sphagnum
+
+```{r}
+reveg_var <- reveg_var %>%   
+  mutate(Other_veg = rowSums(select(., Polytrichum:Trees), na.rm = TRUE)) 
+```
+
+Creating a column that sums up the total cover of ALL plants including Sphagnum
+
+```{r}
+reveg_var <- reveg_var %>%   
+  mutate(Total_veg = rowSums(select(., Sphagnum, Polytrichum:Trees), na.rm = TRUE))
+```
+
+Creating a column that sums up all categories in the field layer
+
+```{r}
+reveg_var <- reveg_var %>%   
+  mutate(Field = rowSums(select(., Carex:Trees), na.rm = TRUE))
+```
+
+Creating a column that sums up all vegetation categories in the ground layer
+
+```{r}
+reveg_var <- reveg_var %>%   
+  mutate(Veg_Ground = rowSums(select(., Sphagnum, Polytrichum, Racomitrium, Other_mosses, Livermosses, Lichen), na.rm = TRUE))
+```
+
+Creating a column that sums up all the categories in the ground layer (including other categories such as mulch, bare peat etc.)
+
+```{r}
+reveg_var <- reveg_var %>%   
+  mutate(Tot_Ground = rowSums(select(., Sphagnum:Lichen, Bare_peat:Dead_wood ), na.rm = TRUE)) 
+```
+
+Tweeking the dataset to fit various types of models (binomial, beta, gamma)
+
+```{r}
+#Tweeking the dataset to fit binomial with no zeros 
+reveg_var <- reveg_var %>%   
+  mutate(Sphagnum_nozero=case_when(Sphagnum==0~ +0.0001,                             
+                                   TRUE~Sphagnum)) 
+
+#Tweeking the dataset to fit integer requirements
+reveg_var <- reveg_var %>%
+  mutate(Sphagnum_int=case_when(Sphagnum==0.1~ 1,                             
+                                TRUE~Sphagnum))
+
+#Tweeking the dataset to fit zero-inflated beta with no 1s (but can have 0s)
+reveg_var <- reveg_var %>%
+  mutate(Sphagnum_no1=case_when(Sphagnum==100~99.99,
+                                TRUE~Sphagnum))
+#Tweeking the dataset to fit beta with no 1s OR no 0s
+reveg_var <- reveg_var %>%
+  mutate(Sphagnum_beta=case_when(Sphagnum_no1==0~ +0.0001,
+                                 TRUE~Sphagnum_no1))
+```
+
+```{r}
+reveg_var <- reveg_var %>%
+  filter(!is.na(Treatment))
+```
+
+```{r}
+write.csv(reveg_var, file='../data/reveg_var.csv')
+```

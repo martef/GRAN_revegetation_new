@@ -1,0 +1,130 @@
+---
+title: "1.6 Data exploration Sphagnum cover"
+author: "MarteF"
+format: html
+editor: visual
+---
+
+## Packages needed
+
+```{r Packages needed, output=FALSE, warning=FALSE}
+library(tidyverse)
+library(readr)
+library(lubridate)
+
+```
+
+## Uploading and cleaning the data
+
+```{r Upload datasets, output=FALSE, warning=FALSE}
+
+reveg_var <- readr::read_delim('../data/reveg_var.csv', 
+                       delim = ',',
+                       locale = locale('se', encoding = 'ISO8859-1'),
+                       col_names = TRUE) 
+
+reveg_var <- reveg_var %>% 
+  select( -1) %>%
+  mutate_at(c('year', 'month', 'Location', 'Sublocation', 'Block', 'Treatment_ID', 'Treatment', 'Name', 'Station_ID'), as.factor) %>%
+  select('Date','year','month', 'Name','Location','Sublocation', 'Block', 'Treatment', 'Treatment_ID', 'Station_ID', everything()) %>%
+  rename(WT_consecutive_days_below = consecutive_days_count, WT_total_days_below=total_days, WT_mean=gs_mean, WT_max=gs_max, WT_min=gs_min) %>%
+  rename(NO3_N = 'NO3-N',NH4_N = 'NH4-N')
+```
+
+## Visual inspection of data
+
+### Sphagnum cover
+
+```{r}
+reveg_var %>%
+  filter(is.na(Sphagnum))
+```
+
+There seem to be one record of nutrients that isn't connected to a treatment plot, resulting in an NA within Sphagnum cover ...
+
+Overall Sphagnum cover changes:
+
+```{r, warning=FALSE}
+plot_SP <- reveg_var %>%
+  filter(!is.na(Sphagnum)) %>%  # Exclude NA values in the Sphagnum column
+  ggplot() +   
+  geom_boxplot()+   
+  aes(x=Treatment, y=Sphagnum, color=as.factor(t_year)) +   
+   ylab("Sphagnum cover") +
+  labs(color = "Growth seasons since treatment") +
+  theme_bw()
+plot_SP
+```
+
+The overall trends is quite clear. Sphagnum treatment increases Sphagnum cover substantially compared to mulch only and controls, even after 2 growth seasons, but especially after 3. The results looks almost similar to the references after 3 growth seasons.
+
+```{r}
+reveg_var %>%
+  filter(!is.na(Sphagnum)) %>%  # Exclude NA values in the Sphagnum column
+  ggplot(aes(x = Sphagnum)) +
+  geom_histogram(binwidth = 0.1, fill = "blue", color = "black", alpha = 0.7) +
+  labs(title = "Histogram of Sphagnum Values",
+       x = "Sphagnum",
+       y = "Frequency") +
+  facet_wrap(~ t_year)
+```
+
+Overall Sphagnum cover per location:
+
+```{r, warning=FALSE}
+plot_SP_Location <- reveg_var %>%
+  filter(!is.na(Sphagnum)) %>%  # Exclude NA values in the Sphagnum column
+  ggplot() +   
+  geom_boxplot()+   
+  aes(x=Treatment, y=Sphagnum, color=as.factor(t_year)) +
+  ylab("Sphagnum cover") +
+  labs(color = "Growth seasons since treatment") +
+  facet_wrap(Location~.) +
+  theme_bw()
+plot_SP_Location +  theme(legend.position="bottom")
+```
+
+There is some differences between sites. The Sphagnum treatment is clearly not as successful at the location VSM (Vestersetermyra).
+
+```{r}
+reveg_var%>%
+  group_by(t_year, Treatment) %>%
+  summarise(median=median(Sphagnum), 
+            mean=mean(Sphagnum),
+            Sph0 = sum(Sphagnum==0),
+            Sph0.1= sum(Sphagnum==0.1),
+            Sph1 = sum(Sphagnum==1),
+            max=max(Sphagnum), total_N = n()) 
+```
+
+```{r}
+reveg_var%>%
+  dplyr::select(Treatment_ID, Treatment, t_year, Location, Sublocation, Block, Sphagnum, Change_Year, Change_Total) %>%
+  filter(Sphagnum==0 & t_year==3 & Treatment=="S")
+```
+
+There's 1 plot from the Sphagnum treatment that had 0 Sphagnum after 3 growth seasons.
+
+Checking which plots had a negative growth of Sphagnum:
+
+```{r}
+reveg_var%>%
+  filter(!is.na(Change_Total)) %>%
+    dplyr::select(Treatment_ID, t_year, Location, Sublocation, Block, Sphagnum, Change_Year, Change_Total) %>%
+  filter(Change_Total<=0)%>%
+  arrange(Change_Total, Treatment_ID)
+
+```
+
+```{r}
+reveg_var %>%      
+  filter(Change_Year<0 | Change_Total<0) %>%      
+  dplyr::select(c(t_year, Location, Sublocation, Block, Treatment, Treatment_ID, Sphagnum, Change_Year, Change_Total))%>%      
+  arrange(Change_Total)
+```
+
+23 plots had zero or negative development of Sphagnum in total throughout the period, but only 4 had a negative development in total (and then really low - only 0.1 and 0.9).
+
+Several plots stagnated or dropped a little from 2nd to 3rd year, of these are 1 Sphagnum plot from VSM.
+
+### 

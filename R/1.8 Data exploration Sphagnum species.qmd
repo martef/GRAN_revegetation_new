@@ -1,0 +1,272 @@
+---
+title: "1.8 Data exploration Sphagnum species"
+author: "MarteF"
+format: html
+editor: visual
+---
+
+## Packages needed
+
+```{r}
+library(tidyverse)
+library(ggridges)
+library(RColorBrewer)
+```
+
+## Upload and clean data
+
+```{r}
+#Upload Sphagnum species dataset 
+sph <- readr::read_delim('C:/Users/martef/DokumenterIntern/GitHub/GRAN_Revegetation/Data/Sphagnum.csv',                                    
+                         delim = ';',                                   
+                         col_names = TRUE)  
+sph <- sph%>%   
+  mutate_at(c('Sph_ang','Sph_pap', 'Sph_div','Sph_rus', 'Sph_fus','Sph_cf'), as.numeric) %>%   
+  mutate_at(c(8:19), ~replace_na(.,0)) 
+
+#Replacing NAs with zeros  
+sph<- sph%>%   
+  rename(Treatment_ID =Treatment) %>%     
+  mutate(Treatment=case_when(Treatment_ID==c('S1','S2')~'S',                              
+                             TRUE~'S'))  
+sph<- sph%>%   
+  mutate_at(c('Location','Sublocation','Block','Treatment_ID','Subplot','Microtopography'), as.factor)   
+sph$Treatment <- as.factor(sph$Treatment)       
+#Convert to date-format 
+sph$Date <- dmy(sph$Date)  
+#Create a year only column 
+sph$year <-as.factor(year(sph$Date))  
+#Create a column with year as 0,1 and 2 
+sph <- sph %>%   
+  mutate(t_year = case_when(year=="2020" & Location =="HM" ~ 0,                             
+                            year=="2021" & Location =="HM" ~ 2,                             
+                            year=="2022" & Location =="HM" ~ 3,                             
+                            year=="2020" & Location =="VSM"  ~ 0,                             
+                            year=="2021" & Location =="VSM" ~ 2,                             
+                            year=="2022" & Location =="VSM" ~ 3,                             
+                            year=="2021" & Location =="BSM" ~ 0,                             
+                            year=="2022" & Location =="BSM" ~ 2,                             
+                            year=="2023" & Location =="BSM" ~ 3,                             
+                            year=="2023" & Location =="HM" ~ 3,                             
+                            year=="2023" & Location =="VSM" ~ 3,     
+                            TRUE ~ NA_real_   )) 
+
+sph$t_year <-as.factor(sph$t_year)  
+sph <- sph %>%    
+  relocate(c(t_year, year, Date, Location, Sublocation, Block, Treatment))
+
+sph_long <- sph %>%   
+  pivot_longer(Sph_ang:Sph_cf, names_to = 'Sph_sp', values_to = "cover")  
+
+# Replace underscores with spaces in the levels of the Sph_sp factor 
+sph_long$Sph_sp <- as.factor(gsub("_", " ", as.character(sph_long$Sph_sp)))  
+
+#Reorder the Sphagnum species so that our experiment species will come first 
+sph_long <- sph_long %>% 
+  mutate(Sph_sp = fct_relevel(Sph_sp, "Sph ang", "Sph cap", "Sph pap", "Sph ten", "Sph bal", "Sph com", "Sph div", "Sph fus", "Sph maj", "Sph rip", "Sph rus", "Sph cf", after = 0))  
+
+#It seems like there are no recordings of Sph_fus, so I'll remove this level from my dataset 
+sph_long <- sph_long %>%   
+  filter(!Sph_sp=="Sph fus")
+```
+
+## Boxplots
+
+```{r}
+# Plot 
+sph_plot <- sph_long %>%   
+  ggplot(aes(x = Treatment, y = cover, color = Sph_sp)) +      
+  geom_boxplot() +      
+  theme_minimal() +        
+  facet_wrap(. ~ t_year) +   
+  theme(axis.title.x = element_blank(),         
+        axis.text.x = element_blank(),         
+        axis.ticks.x = element_blank()) +   
+  labs(color = "Sphagnum species", y = "% cover")  
+# Print the plot 
+ 
+#ggsave(sph_plot, filename = "../figures/sphsp_boxplot.png")
+
+print(sph_plot) 
+```
+
+```{r}
+sph_plot2 <- sph_long %>%
+  ggplot(aes(x=Treatment, y=cover, color=Sph_sp)) +
+  geom_boxplot()+theme_minimal() +
+  facet_grid(Location ~ Sublocation + t_year, space = "free") +
+  theme(axis.title.x=element_blank(),axis.text.x=element_blank(),axis.ticks.x=element_blank())
+
+
+#ggsave(sph_plot2, filename = "../figures/sphsp_sublocation_boxplot.png")
+sph_plot2
+
+
+```
+
+```{r}
+ggplot(sph_long, aes(x = t_year, y = Total)) +   
+  geom_boxplot()+     
+  theme_minimal() +   
+  theme(axis.text.x = element_text(angle = 45, hjust = 1), 
+        axis.title.x = element_blank()) +   
+  facet_grid(Location ~ Sublocation, space = "free")
+```
+
+## Exploring the numbers
+
+The numbers from the subplots indicate that they are not a perfect representation of the larger Sphagnum treatment plots.
+
+```{r}
+sph %>%   
+  group_by(Location, Sublocation, t_year) %>%   
+  summarise(mean = mean(Total))
+```
+
+```{r}
+reveg %>%   
+  filter(Treatment=="S") %>%   
+  filter(!t_year=="0") %>%   
+  group_by(Location, Sublocation, t_year) %>%   
+  summarise(mean = mean(Sphagnum))
+```
+
+The mean total cover of Sphagnum within the subplots does in most cases look similar to the mean total cover within the Sphagnum treatments. But there are some very clear exceptions:
+
+BSM1 has only HALF the cover in the subplots compared to the treatment plot as a whole.
+
+BSM2 is about 20% lower within the subplots in year 3, while this is mostly similar in year 2.
+
+Most of the others have slightly lower total cover in the subplots than in the treatment plots, but that may just be the resolution (it should be easier to be accurate within the subplots than within the treatment plot).
+
+```{r}
+sph %>%   
+  filter(Location=="BSM" & Sublocation=="1" & Block=="4") %>%   
+  group_by(Treatment_ID, t_year)
+```
+
+I can't pinpoint a specific block or anything like that that bring down the mean for BSM1, the numbers are just in total lower than the main treatment plots.\
+
+```{r}
+reveg %>%   
+  filter(Location=="BSM" & Sublocation=="1" & Treatment=="S" & !t_year=="0") %>%   dplyr::select(Location, Sublocation, Block, Treatment, Treatment_ID, t_year, Sphagnum, Mulch, Bare_peat, Dead_sph) %>%   
+  group_by(Block, Treatment_ID, t_year)
+```
+
+## Proportion of total Sphagnum cover
+
+I want to test whether the Sphagnum species data would be better represented as proportions.
+
+```{r}
+# calculate the proportion of each species' cover within the Total 
+sph_long <- sph_long %>%   
+  mutate(Proportion = cover / Total)
+```
+
+```{r}
+# Plot 
+sph_plot_prop <- sph_long %>%   
+  ggplot(aes(x = Treatment, y = Proportion, color = Sph_sp)) +      
+  geom_boxplot() +      
+  theme_minimal() +        
+  facet_wrap(. ~ t_year) +   
+  theme(axis.title.x = element_blank(),         
+        axis.text.x = element_blank(),         
+        axis.ticks.x = element_blank()) +   
+  labs(color = "Sphagnum species", y = "Proportion of /Sphagnum/ cover")  
+
+# Print the plot 
+print(sph_plot_prop)  
+#ggsave(sph_plot_prop, filename = '../figures/sphsp_plot_prop.png"))
+```
+
+```{r}
+sph_long%>%   
+  group_by(t_year, Sph_sp) %>%   
+  summarise(mean=mean(cover),             
+            sd=sd(cover),             
+            max=max(cover),             
+            prop=mean(Proportion),             
+            prop_max=max(Proportion),             
+            sd_prop=sd(Proportion))
+```
+
+```{r}
+sph_long %>%   
+  filter(Sph_sp=="Sph fus" & cover>=0)
+```
+
+```{r}
+sph_long %>%
+  ggplot(aes(x = cover)) +
+  geom_histogram(binwidth = 0.1, fill = "blue", color = "black", alpha = 0.7) +
+  labs(title = "Histogram of cover Values",
+       x = "Sphagnum",
+       y = "Frequency")
+```
+
+As a lot of the naturally spreading species occur with zero presence in most subplots, I have alot of zeros in the dataset. All numbers are recorded as whole numbers, so a beta distribution might work here as well.
+
+```{r}
+#Tweeking the dataset to fit binomial with no zeros 
+sph_long <- sph_long %>%   
+  mutate(cover_no0=case_when(cover==0~ +0.01,                             
+                             TRUE~cover)) 
+
+#Tweeking the dataset to fit integer requirements
+sph_long <- sph_long %>%
+  mutate(cover_int=case_when(cover==0.1~ 1,                             
+                             TRUE~cover))
+
+#Tweeking the dataset to fit beta with no 1s
+sph_long <- sph_long %>%
+  mutate(cover_no1=case_when(cover==100~99.9,
+                                TRUE~cover))
+```
+
+## Density plots
+
+```{r}
+# Specify the desired order of species
+unique(sph_long$Sph_sp)
+species_order <- c("Sph ang", "Sph cap", "Sph ten", "Sph pap", "Sph bal", "Sph com", "Sph div", 'Sph maj', 'Sph rip', 'Sph rus', 'Sph cf')
+species_order <- rev(species_order)
+
+# Make sure Sph_sp is a factor with the specified levels
+sph_long$Sph_sp <- factor(sph_long$Sph_sp, levels = species_order)
+
+
+```
+
+```{r}
+sph_long_y3 <- sph_long %>%
+  filter(t_year==3)
+
+denplot <- ggplot(sph_long_y3, aes(x = cover, y = Sph_sp, fill = Sph_sp)) + 
+  geom_density_ridges(
+    quantile_lines = TRUE, scale = 2, alpha = 1,
+    vline_width = 0.2, vline_color = "black", rel_min_height = 0.01) +
+  theme_minimal() +
+  labs(y = "Sphagnum species", x = "Total percentage cover") +
+  guides(fill = guide_legend(reverse = TRUE)) +
+    scale_fill_brewer(palette="PuOr")
+
+
+ggsave(denplot, filename='../figures/densityplot_Sphsp.png')
+print(denplot)
+```
+
+```{r}
+denplot2 <- ggplot(sph_long_y3, aes(x = Proportion, y = Sph_sp, fill = Sph_sp)) + 
+  geom_density_ridges(
+    quantile_lines = TRUE, scale = 2, alpha = 1,
+    vline_width = 0.2, vline_color = "black", rel_min_height = 0.01) +
+  theme_minimal() +
+  labs(y = "Sphagnum species", x = "Proportion of Sphagnum cover") +
+  guides(fill = guide_legend(reverse = TRUE)) +
+  scale_fill_brewer(palette="PuOr")
+
+
+ggsave(denplot2, filename='../figures/densityplot_Sphsp_prop.png')
+print(denplot2)
+```

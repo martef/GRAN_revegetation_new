@@ -114,3 +114,53 @@ H1.Sph.beta<-   brm(Sphagnum_beta/100 ~ Treatment + WT_total_days_below_sum + WT
 ```{r}
 summary(H1.Sph.beta)
 ```
+
+```{r}
+plot(H1.Sph.beta)
+```
+
+```{r}
+# Bayesian R-squared
+r2 <- bayes_R2(H1.Sph.beta)
+print(r2)
+
+
+```
+
+```{r}
+#Generate submodel
+H3.Sph.beta <- brm(Sphagnum_beta/100 ~ WT_total_days_below_sum + WT_consecutive_days_below_max + WT_mean + (1 | Location/Sublocation),
+                   data=H1.Sph,
+                 Beta(link = "logit", link_phi = "log"),
+                chains = 4, # nb of chains
+                 iter = 4000, # nb of iterations, including burnin
+                 warmup = 1000, # burnin
+                 thin = 3,
+                control = list(adapt_delta = 0.99, max_treedepth = 15))
+```
+
+```{r}
+# Generate predictions from the models
+pred_H1 <- posterior_predict(H1.Sph.beta)
+pred_H3 <- posterior_predict(H3.Sph.beta)
+
+
+#Compare variance explained by full model vs submodel
+var_H1<- apply(pred_H1, 2, var)
+var_H3 a- apply(pred_H3, 2, var)
+
+```
+
+```{r}
+# Calculate variance explained
+prop_var_H3 <- 1 - var_H3 / var_H1
+
+mean(pror_var_H3)
+cat("Proportion of variance explained by Treatment: ", mean(prop_var_H3), "\n")
+
+```
+
+```{r}
+# Marginal effects
+marginal_effects(H1.Sph.beta)
+```
