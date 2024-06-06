@@ -11,6 +11,7 @@ editor: visual
 library(tidyverse)
 library(ggridges)
 library(RColorBrewer)
+library(scales)
 ```
 
 ## Upload and clean data
@@ -61,21 +62,43 @@ sph_long <- sph %>%
 # Replace underscores with spaces in the levels of the Sph_sp factor 
 sph_long$Sph_sp <- as.factor(gsub("_", " ", as.character(sph_long$Sph_sp)))  
 
-#Reorder the Sphagnum species so that our experiment species will come first 
-sph_long <- sph_long %>% 
-  mutate(Sph_sp = fct_relevel(Sph_sp, "Sph ang", "Sph cap", "Sph pap", "Sph ten", "Sph bal", "Sph com", "Sph div", "Sph fus", "Sph maj", "Sph rip", "Sph rus", "Sph cf", after = 0))  
+# calculate the proportion of each species' cover within the Total 
+sph_long <- sph_long %>%   
+  mutate(Proportion = cover / Total)
 
 #It seems like there are no recordings of Sph_fus, so I'll remove this level from my dataset 
 sph_long <- sph_long %>%   
   filter(!Sph_sp=="Sph fus")
+
+#Reorder the Sphagnum species so that our experiment species will come first 
+sph_long <- sph_long %>% 
+  mutate(Sph_sp = fct_relevel(Sph_sp, "Sph ang", "Sph cap", "Sph pap", "Sph ten", "Sph bal", "Sph com", "Sph div", "Sph maj", "Sph rip", "Sph rus", "Sph cf", after = 0))  
+
+```
+
+```{r}
+# Create subset with only year 3 data
+sph_long_y3 <- sph_long %>%
+  filter(t_year==3)
+```
+
+```{r}
+# Create aggregated dataset to plot level
+sph_long_agg <- sph_long_y3 %>%
+  group_by(Location, Sublocation, Block, Treatment_ID, Sph_sp) %>%
+  summarise(cover = mean(cover, na.rm = TRUE),
+            Proportion = mean(Proportion, na.rm = TRUE))
+
+# Display the aggregated data
+sph_long_agg
 ```
 
 ## Boxplots
 
 ```{r}
-# Plot 
+# Plot with rawdata
 sph_plot <- sph_long %>%   
-  ggplot(aes(x = Treatment, y = cover, color = Sph_sp)) +      
+  ggplot(aes(x = Sph_sp, y = cover, color = Sph_sp)) +      
   geom_boxplot() +      
   theme_minimal() +        
   facet_wrap(. ~ t_year) +   
@@ -83,11 +106,43 @@ sph_plot <- sph_long %>%
         axis.text.x = element_blank(),         
         axis.ticks.x = element_blank()) +   
   labs(color = "Sphagnum species", y = "% cover")  
-# Print the plot 
  
 #ggsave(sph_plot, filename = "../figures/sphsp_boxplot.png")
 
 print(sph_plot) 
+```
+
+```{r}
+# Plot with year 3 data only
+sph_plot_y3 <- sph_long_y3 %>%   
+  ggplot(aes(x = Sph_sp, y = cover, color = Sph_sp)) +      
+  geom_boxplot() +      
+  theme_minimal() +        
+  theme(axis.title.x = element_blank(),         
+        axis.text.x = element_blank(),         
+        axis.ticks.x = element_blank()) +   
+  labs(color = "Sphagnum species", y = "% cover")  
+
+ 
+#ggsave(sph_plot, filename = "../figures/sphsp_boxplot_y3.png")
+
+print(sph_plot_y3) 
+```
+
+```{r}
+# Plot with aggregated data
+sph_plot_agg <- sph_long_agg %>%   
+  ggplot(aes(x = Sph_sp, y = cover, color = Sph_sp)) +      
+  geom_boxplot() +      
+  theme_minimal() +        
+  theme(axis.title.x = element_blank(),         
+        axis.text.x = element_blank(),         
+        axis.ticks.x = element_blank()) +   
+  labs(color = "Sphagnum species", y = "% cover")  
+ 
+#ggsave(sph_plot, filename = "../figures/sphsp_boxplot_y3_agg.png")
+
+print(sph_plot_agg) 
 ```
 
 ```{r}
@@ -156,12 +211,6 @@ reveg %>%
 ## Proportion of total Sphagnum cover
 
 I want to test whether the Sphagnum species data would be better represented as proportions.
-
-```{r}
-# calculate the proportion of each species' cover within the Total 
-sph_long <- sph_long %>%   
-  mutate(Proportion = cover / Total)
-```
 
 ```{r}
 # Plot 
@@ -239,9 +288,6 @@ sph_long$Sph_sp <- factor(sph_long$Sph_sp, levels = species_order)
 ```
 
 ```{r}
-sph_long_y3 <- sph_long %>%
-  filter(t_year==3)
-
 denplot <- ggplot(sph_long_y3, aes(x = cover, y = Sph_sp, fill = Sph_sp)) + 
   geom_density_ridges(
     quantile_lines = TRUE, scale = 2, alpha = 1,
@@ -270,6 +316,118 @@ denplot2 <- ggplot(sph_long_y3, aes(x = Proportion, y = Sph_sp, fill = Sph_sp)) 
 ggsave(denplot2, filename='../figures/densityplot_Sphsp_prop.png')
 print(denplot2)
 ```
+
+Let's try the same with the aggregated data per plot:
+
+```{r}
+denplot3 <- ggplot(sph_long_agg, aes(x = Proportion, y = Sph_sp, fill = Sph_sp)) + 
+  geom_density_ridges(
+    quantile_lines = TRUE, scale = 2, alpha = 1,
+    vline_width = 0.2, vline_color = "black", rel_min_height = 0.01) +
+  theme_minimal() +
+  labs(y = "Sphagnum species", x = "Proportion of Sphagnum cover") +
+  guides(fill = guide_legend(reverse = TRUE)) +
+  scale_fill_brewer(palette="PuOr")
+
+
+#ggsave(denplot3, filename='../figures/densityplot_Sphsp_prop_agg.png')
+print(denplot3)
+```
+
+```{r}
+denplot4 <- ggplot(sph_long_agg, aes(x = cover, y = Sph_sp, fill = Sph_sp)) + 
+  geom_density_ridges(
+    quantile_lines = TRUE, scale = 2, alpha = 1,
+    vline_width = 0.2, vline_color = "black", rel_min_height = 0.01) +
+  theme_minimal() +
+  labs(y = "Sphagnum species", x = "Total percentage cover") +
+  guides(fill = guide_legend(reverse = TRUE)) +
+    scale_fill_brewer(palette="PuOr")
+
+
+#ggsave(denplot4, filename='../figures/densityplot_Sphsp_agg.png')
+print(denplot4)
+```
+
+I see that I might don't need to display all the "extra" species with very little coverage.
+
+Let's try with new density plots with only the four experiment species and a few other adjustments.
+
+```{r}
+sph_long_agg_ex <- sph_long_agg %>%
+  filter(Sph_sp==(c('Sph ang', 'Sph cap', 'Sph pap', 'Sph ten')))
+```
+
+```{r}
+denplot5 <- ggplot(sph_long_agg_ex, aes(x = cover, y = Sph_sp, fill = ..x.., group = Sph_sp)) + 
+  geom_density_ridges_gradient(
+    quantile_lines = TRUE, scale = 3, alpha = 0.5,
+    vline_width = 0.2, vline_color = "black", rel_min_height = 0.01) +
+  theme_minimal() +
+  labs(y = "Sphagnum species", x = "Total percentage cover") +
+  scale_fill_viridis_c(option='C') +
+  theme(legend.position = "none",
+  axis.title.y = element_text(margin = margin(r = 15)),
+   axis.title.x = element_text(margin = margin(t = 10))) # Adjust margin of y-xis title
+
+#ggsave(denplot5, filename='../figures/densityplot_Sphsp_agg_ex.png')
+print(denplot5)
+```
+
+```{r}
+denplot6 <- ggplot(sph_long_agg_ex, aes(x = cover, y = Sph_sp, fill = Sph_sp)) + 
+  geom_density_ridges(
+    quantile_lines = TRUE, scale = 2, alpha = 0.8,
+    vline_width = 0.2, vline_color = "black", rel_min_height = 0.01) +
+  theme_minimal() +
+  labs(y = "Sphagnum species", x = "Total percentage cover") +
+  scale_fill_brewer(palette="PuOr") +
+  theme(legend.position = "none",
+  axis.title.y = element_text(margin = margin(r = 15)),
+   axis.title.x = element_text(margin = margin(t = 10))) # Adjust margin of y-xis title
+
+#ggsave(denplot6, filename='../figures/densityplot_Sphsp_agg_ex.png')
+print(denplot6)
+```
+
+```{r}
+denplot7 <- ggplot(sph_long_agg_ex, aes(x = Proportion, y = Sph_sp, fill = Sph_sp)) + 
+  geom_density_ridges(
+    quantile_lines = TRUE, scale = 3, alpha = 0.9,
+    vline_width = 0.2, vline_color = "black", rel_min_height = 0.01) +
+  theme_minimal() +
+  labs(y = "Sphagnum species", x = "Proportion of Sphagnum cover") +
+  scale_fill_brewer(palette="PuOr") +
+  theme(legend.position = "none",
+  axis.title.y = element_text(margin = margin(r = 15)),
+   axis.title.x = element_text(margin = margin(t = 10))) # Adjust margin of y-xis title
+
+#ggsave(denplot7, filename='../figures/densityplot_Sphsp_agg_ex_prop.png')
+print(denplot7)
+```
+
+```{r}
+denplot8 <- ggplot(sph_long_agg_ex, aes(x = Proportion, y = Sph_sp, fill = ..x.., group = Sph_sp)) + 
+  geom_density_ridges_gradient(
+    quantile_lines = TRUE, quantiles = 2, scale = 2, alpha = 0.5,
+    vline_width = 0.5, vline_color = "black", rel_min_height = 0.01,
+    color = "black") +  # Adjust outline color and size) +
+  theme_minimal() +
+  labs(y = "Sphagnum species", x = "Total percentage cover") +
+  scale_fill_gradientn(
+    colors = c("blue", "green", "yellow", "red"),
+    values = rescale(c(0.2, 0.40, 0.6, 0.80)),
+    limits = c(0, 1)
+  ) +
+  theme(legend.position = "none",
+  axis.title.y = element_text(margin = margin(r = 15)),
+   axis.title.x = element_text(margin = margin(t = 10))) # Adjust margin of y-xis title
+
+#ggsave(denplot8, filename='../figures/densityplot_Sphsp_agg_ex_prop2.png')
+print(denplot8)
+```
+
+Nah, I can't really get this gradient fill to work in an aesthetic way. I'll stick with version 7.
 
 ## Save datasets
 
