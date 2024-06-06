@@ -100,20 +100,6 @@ reveg <- reveg %>%
 
 ## Combining vegetation data with other explanatory variables
 
-Uploading and editing dataset for climate variables (precipitation and air temperatures):
-
-```{r, output=FALSE, warning=FALSE}
-#Upload dataset for climate variables
-climvar <- readr::read_delim('../data/clim_var.csv', 
-                                  delim = ',',
-                                  col_names = TRUE)
-
-climvar <- climvar %>% 
-  dplyr::select( -1) %>%
-  mutate_at(c('year', 'Name'), as.factor)
-
-```
-
 Uploading and editing dataset for water level variables:
 
 ```{r, output=FALSE, warning=FALSE}
@@ -136,31 +122,26 @@ wtvar <- wtvar %>%
 #Created a column for weather station Name in the water table dataset
 ```
 
-Joining the explanatory datasets:
+Cleaning the WT dataset:
 
 ```{r}
-#Joining the explanatory variables datasets
-
-all_var <- wtvar %>%
-  full_join (climvar)
-
 #There's no reason to keep 2019 in the dataset, as I didn't record vegetation that year
 
-all_var <- all_var %>%
+wtvar <- wtvar %>%
   filter(!year=='2019')
 
-all_var <- all_var%>%
+wtvar <- wtvar%>%
   relocate(Name)
 
 # The total days with water table < -0.2m (total_days) are set to zero for those stations that didn't have any data (BSM1 in 2022, 2023, and HM2 in 2021, 2022, 2023). I need to change these to NAs
-all_var <- all_var %>%
+wtvar <- wtvar %>%
   mutate(total_days = case_when(
     is.na(consecutive_days_count) ~ NA_real_,
     TRUE ~ total_days
   ))
 
 #Create similar columns as in reveg dataset
-all_var <- all_var %>%
+wtvar <- wtvar %>%
   separate('Station_ID', into = c('Location', 'Sublocation'), sep = "(?<=\\D)(?=\\d)|(?<=\\d)(?=\\D)", remove = FALSE)
 
 ```
@@ -180,27 +161,41 @@ nut_var <- nut_var %>%
 mutate_at(c('Sublocation', 'Block','Location','Treatment'), as.factor) %>%
   mutate_at(c('P', 'Fe', 'Mn', 'Cu', 'Zn', 'B', 'Pb', 'Al'), as.double) %>%
   rename(NO3_N = 'NO3-N', NH4_N = 'NH4-N') %>%
-  mutate(year = as.factor(year(Burial_Date)))
+  mutate(year = as.factor(year(Burial_Date))) %>%
+  mutate()
 
+#Changing Treatment SP to S, and adding Treatment_ID
+nut_var <- nut_var %>%
+  mutate(Treatment_ID = case_when(
+    Treatment=='SP' ~ 'S1',
+    TRUE ~ Treatment
+  ))
+
+nut_var <- nut_var %>%
+  mutate(Treatment = case_when(
+    Treatment=='SP' ~ 'S',
+    TRUE ~ Treatment
+  ))
+
+#Removing line with detection limits
+nut_var <- nut_var %>%
+  filter(!is.na(Treatment))
 ```
 
 Joining the revegetation dataset with the explanatory variables:
 
 ```{r}
 #Join the revegetation dataset with the variable datasets
-reveg_var <- reveg %>% full_join(nut_var, by=c('year','Location','Sublocation','Block','Treatment'))
+reveg_var <- reveg %>% full_join(nut_var, by=c('year','Location','Sublocation','Block','Treatment', 'Treatment_ID'))
 
 reveg_var2 <- reveg_var %>% 
-  left_join(all_var, by=c('Location', 'Sublocation', 'year'))
+  left_join(wtvar, by=c('Location', 'Sublocation', 'year'))
 
 reveg_var2 <- reveg_var2 %>%
-  mutate_at(c('Location','Sublocation'), as.factor)
+  mutate_at(c('Location','Sublocation', 'Treatment_ID', 'Treatment'), as.factor)
 
 reveg_var <- reveg_var2
 rm(reveg_var2)       
-
-reveg_var <- reveg_var %>%
-  dplyr::select(-c(Notes.x, Notes.y))
 ```
 
 ## Creating new columns for analysis
@@ -295,9 +290,5 @@ reveg_var <- reveg_var %>%
 ```
 
 ```{r}
-#write.csv(reveg_var, file='../data/reveg_var.csv')
-```
-
-```{r}
-unique(reveg_var$year)
+write.csv(reveg_var, file='../data/reveg_var.csv')
 ```
