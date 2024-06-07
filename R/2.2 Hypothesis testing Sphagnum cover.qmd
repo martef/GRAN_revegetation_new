@@ -163,59 +163,6 @@ H2.Sph.beta <- brm(
 ```
 
 ```{r}
-H2.Sph.beta <- brm(
-  Sphagnum_beta/100 ~ Treatment*(WT_total_days_below_sum) + (1 | Location/Sublocation),
-  data = H1.Sph,
-  family = Beta(link = "logit", link_phi = "log"),
-  chains = 4,
-  iter = 4000,
-  warmup = 1000,
-  thin = 3,
-  control = list(adapt_delta = 0.99, max_treedepth = 15)
-)
-```
-
-```{r}
-init_values <- function() {
-  list(
-    b = rep(0, 6),  # Assuming 6 fixed effect coefficients; adjust as necessary
-    sd_1 = 0.1, 
-    sd_2 = 0.1, 
-    z_1 = rnorm(length(unique(H1.Sph$Location)), 0, 0.1),
-    z_2 = rnorm(length(unique(H1.Sph$Sublocation)), 0, 0.1),
-    shape1 = 1,  # Initial value for the first shape parameter
-    shape2 = 1   # Initial value for the second shape parameter
-  )
-}
-
-H2.Sph.beta <- brm(
-  Sphagnum_beta/100 ~ Treatment*(WT_total_days_below_sum + WT_consecutive_days_below_max + WT_mean) + (1 | Location/Sublocation),
-  data = H1.Sph,
-  family = Beta(link = "logit", link_phi = "log"),
-  chains = 4,
-  iter = 4000,
-  warmup = 1000,
-  thin = 3,
-  control = list(adapt_delta = 0.99, max_treedepth = 15),
-  init = init_values
-)
-```
-
-```{r}
-summary(H2.Sph.beta)
-```
-
-```{r}
-plot(H2.Sph.beta)
-```
-
-```{r}
-# Bayesian R-squared
-r2 <- bayes_R2(H2.Sph.beta)
-print(r2)
-```
-
-```{r}
 #Generate base model
 H3.Sph.beta <- brm(Sphagnum_beta/100 ~ WT_total_days_below_sum + WT_consecutive_days_below_max + WT_mean + (1 | Location/Sublocation),
                    data=H1.Sph,

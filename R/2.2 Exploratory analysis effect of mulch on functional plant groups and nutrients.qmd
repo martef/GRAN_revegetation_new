@@ -1,0 +1,175 @@
+---
+title: "2.2 Exploratory analysis effect of mulch on functional vegetation groups and nutrients"
+author: "MarteF"
+format: html
+editor: visual
+---
+
+## Packages needed
+
+```{r}
+library(tidyverse)
+library(vegan)
+```
+
+## Uploading data
+
+When you click the **Render** button a document will be generated that includes both content and the output of embedded code. You can embed code like this:
+
+```{r}
+reveg_var <- readr::read_delim('../data/reveg_var.csv',                                    
+                         delim = ',',                                   
+                         col_names = TRUE)
+
+reveg_var <- reveg_var %>% 
+  select( -1) %>%
+  mutate_at(c('year', 'month', 'Location', 'Sublocation', 'Block', 'Treatment_ID', 'Treatment', 'Name', 'Station_ID'), as.factor) %>%
+  select('Date','year','month', 'Name','Location','Sublocation', 'Block', 'Treatment', 'Treatment_ID', 'Station_ID', everything()) %>%
+  rename(WT_consecutive_days_below = consecutive_days_count, WT_total_days_below=total_days, WT_mean=gs_mean, WT_max=gs_max, WT_min=gs_min)
+```
+
+```{r}
+# Pivoting functional plant groups
+reveg_var_long_fg <- reveg_var %>%
+  select(c(Location:Treatment_ID, t_year:Temp_water)) %>%
+  pivot_longer(cols = Sphagnum:Temp_water, 
+               names_to = 'functional_group', 
+               values_to = 'cover')
+
+# Pivoting nutrients
+reveg_var_long_nutrients <- reveg_var %>%
+  select(c(Location:Treatment_ID, t_year, NO3_N:Cd)) %>%
+  pivot_longer(cols = NO3_N:Cd, 
+               names_to = 'nutrients', 
+               values_to = 'level')
+
+# Joining the two pivoted data frames by their row number
+reveg_var_long <- reveg_var_long_fg %>%
+  full_join(reveg_var_long_nutrients, by = c('Location', 'Sublocation', 'Block', 'Treatment', 'Treatment_ID', 't_year'))
+
+# The references are lacking a treatment ID
+reveg_var_long <- reveg_var_long %>%
+  mutate(Treatment_ID = case_when(
+    Treatment == 'R' ~ 'R',
+    TRUE ~ Treatment_ID
+    ))
+```
+
+```{r}
+#Subsetting functional vegetation groups to only data for year 3
+reveg_fg_y3 <- reveg_var %>%
+  filter(t_year=='3') %>%
+  select(c(Location:Treatment_ID, Roughness:Temp_water))
+
+#Subsetting to only include C and M
+reveg_fg_y3_CM <- reveg_fg_y3 %>%
+  filter(Treatment==(c('C','M')))
+
+#Subsetting nutrients to only the year with data (year 0)
+reveg_nut <- reveg_var %>%
+  filter(t_year=='0') %>%
+  select(c(Location:Treatment_ID, NO3_N:Cd))
+
+#Join the two datasets
+reveg_var_pca <- reveg_fg_y3_CM %>%
+  full_join(reveg_nut, by = c('Location', 'Sublocation', 'Block', 'Treatment', 'Treatment_ID'))
+```
+
+## Ordination
+
+### PCA All
+
+```{r}
+# Step 1: Prepare the Data
+# Filter out rows with any NA values in the relevant columns
+filtered_data <- reveg_var_pca %>%
+  filter(complete.cases(across(Sphagnum:Cd)))
+
+# Remove columns with zero variance
+non_zero_var_columns <- filtered_data %>%
+  select(Sphagnum:Cd) %>%
+  select(where(~ var(.) != 0))
+
+# Extract the numeric matrix for PCA
+full_matrix <- as.matrix(non_zero_var_columns)
+
+# Step 2: Perform PCA
+pca_result <- prcomp(full_matrix, scale. = TRUE)
+
+# Step 3: Extract and Bind Scores
+# Extract PCA scores
+pca_scores <- as_tibble(pca_result$x) %>%
+  bind_cols(filtered_data %>% select(Location, Treatment))
+
+# Extract PCA loadings
+pca_loadings <- as_tibble(pca_result$rotation, rownames = "variables")
+
+# Step 5: Scale the Loadings for Better Visualization
+scaling_factor <- max(abs(pca_scores$PC1))
+pca_loadings_scaled <- pca_loadings %>%
+  mutate(across(-variables, ~ . * scaling_factor))
+
+# Create the PCA plot with separate layers for scores and loadings
+pca_plot <- ggplot(pca_scores, aes(x = PC1, y = PC2)) +
+  geom_point(aes(color = Location, shape = Treatment), size = 3) +
+  stat_ellipse(aes(group = Treatment, color = Treatment), type = "norm", level = 0.95) +
+  geom_segment(data = pca_loadings_scaled, aes(x = 0, y = 0, xend = PC1, yend = PC2), arrow = arrow(length = unit(0.2, "cm")), color = "blue") +
+  geom_text(data = pca_loadings_scaled, aes(x = PC1, y = PC2, label = variables), color = "black", vjust = 1.5) +
+  labs(title = "PCA of Variable Levels by Location and Treatment",
+       x = "PC1",
+       y = "PC2") +
+  theme_minimal()
+
+# Print the plot
+print(pca_plot)
+```
+
+```{r}
+
+#ggsave("pca_nutrient_levels.png", plot = pca_plot, width = 10, height = 8, dpi = 300)
+```
+
+### PCA Functional Groups Only (only C & M)
+
+```{r}
+# Step 1: Prepare the Data
+# Filter out rows with any NA values in the relevant columns
+filtered_data_fg <- reveg_var_pca %>%
+  filter(complete.cases(across(Roughness:Temp_water)))
+
+# Remove columns with zero variance
+non_zero_var_columns_fg <- filtered_data %>%
+  select(Roughness:Temp_water) %>%
+  select(where(~ var(.) != 0))
+
+
+# Step 2: Perform PCA
+pca_result <- prcomp(non_zero_var_columns_fg, scale. = TRUE)
+
+# Step 3: Extract and Bind Scores
+# Extract PCA scores
+pca_scores <- as_tibble(pca_result$x) %>%
+  bind_cols(filtered_data_fg %>% select(Treatment))
+
+# Extract PCA loadings
+pca_loadings <- as_tibble(pca_result$rotation, rownames = "variables")
+
+# Step 5: Scale the Loadings for Better Visualization
+scaling_factor <- max(abs(pca_scores$PC1))
+pca_loadings_scaled <- pca_loadings %>%
+  mutate(across(-variables, ~ . * scaling_factor))
+
+# Create the PCA plot with separate layers for scores and loadings
+pca_plot <- ggplot(pca_scores, aes(x = PC1, y = PC2)) +
+  geom_point(aes(color = Location, shape = Treatment), size = 3) +
+  stat_ellipse(aes(group = Treatment, color = Treatment), type = "norm", level = 0.95) +
+  geom_segment(data = pca_loadings_scaled, aes(x = 0, y = 0, xend = PC1, yend = PC2), arrow = arrow(length = unit(0.2, "cm")), color = "blue") +
+  geom_text(data = pca_loadings_scaled, aes(x = PC1, y = PC2, label = variables), color = "black", vjust = 1.5) +
+  labs(title = "PCA of Variable Levels by Location and Treatment",
+       x = "PC1",
+       y = "PC2") +
+  theme_minimal()
+
+# Print the plot
+print(pca_plot)
+```
