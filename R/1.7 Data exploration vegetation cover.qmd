@@ -26,6 +26,23 @@ reveg_var <- reveg_var %>%
   mutate_at(c('year', 'month', 'Location', 'Sublocation', 'Block', 'Treatment_ID', 'Treatment', 'Name', 'Station_ID'), as.factor) %>%
   select('Date','year','month', 'Name','Location','Sublocation', 'Block', 'Treatment', 'Treatment_ID', 'Station_ID', everything()) %>%
   rename(WT_consecutive_days_below = consecutive_days_count, WT_total_days_below=total_days, WT_mean=gs_mean, WT_max=gs_max, WT_min=gs_min)
+
+
+
+```
+
+I've seen that there is a need for some cleaning within the plant functional groups. Some smaller and very detailed groups should be combined, like Rhynchospora should join Carex, and Oxycoccus and Drosera should join Herbs. Some have not the correct names. This doesn't affect the former calculations of total vegetation cover or ground/field layer.
+
+```{r}
+#Renaming and combining several of the field groups into more coherent functional groups:
+
+reveg_var <- reveg_var %>%
+  rename(Liverworts = Livermosses, Rushes = Sedges, Evergreens = Heathers) %>% #rename misnamed groups
+  mutate(Shrubs_Trees = Trees + Bushes + Bet_nan,       # combine Trees, Bushes, and Bet_nan into Shrubs_Trees
+         Carex = Carex + Rhynchospora,                   # join Rhyncospora into Carex
+         Herbs = Herbs + Oxycoccus + Drosera)    %>%       # join Oxycoccus and Drosera into Herbs
+ select(-Trees, -Bushes, -Bet_nan, -Rhynchospora, -Oxycoccus, -Drosera)  %>% # remove the old columns
+  relocate(Shrubs_Trees, .after = Seedlings)  
 ```
 
 ### Other vegetation cover
@@ -64,7 +81,7 @@ I need to take a closer look at those with total vegetation cover of more than 1
 
 ```{r}
 reveg_var%>%
-  dplyr::select(c(Location, t_year, Sublocation, Block, Treatment, Treatment_ID, Sphagnum, Other_mosses, Livermosses, Lichen, Polytrichum, Racomitrium, Trichophorum, Eriopherum, Heathers, Narthecium, Bet_nan, Other_veg, Veg_Ground, Tot_Ground, Field, Total_veg))%>%
+  dplyr::select(c(Location, t_year, Sublocation, Block, Treatment, Treatment_ID, Sphagnum, Other_mosses, Liverworts, Lichen, Polytrichum, Racomitrium, Trichophorum, Eriopherum, Evergreens, Narthecium, Other_veg, Veg_Ground, Tot_Ground, Field, Total_veg))%>%
  filter(Total_veg>120)
 ```
 
@@ -100,7 +117,7 @@ reveg_var%>%
 Creating long format of species functional groups:
 
 ```{r}
-reveg_long <-reveg%>%
+reveg_long <-reveg_var%>%
   pivot_longer(Sphagnum:Temp_water, names_to = 'functional_group', values_to = "cover")
 ```
 
@@ -118,7 +135,208 @@ plot_ref <- reveg_long %>%
 plot_ref +  theme(legend.position="bottom")
 ```
 
-The reference plots have a high cover of Sphagnum (about 71% mean), and a decent cover of Narthecium, heathers (eviggrønne busker) and Trichophorum. There's also some litter (about 14%ish), while Eriopherum covers only ca. 3%)
+```{r}
+plot_M <- reveg_long %>%
+  filter(Treatment=='M' & t_year==3) %>%
+  ggplot() +   
+  geom_boxplot()+   
+  aes(x=reorder(functional_group, desc(cover), FUN = median), y=cover) +
+  ylab("Cover of the various functional groups in the reference plots") +
+  theme(axis.text.x = element_text(angle = 90, vjust = 0.5, hjust=1))
+  
+plot_M +  theme(legend.position="bottom")
+```
+
+```{r}
+plot_S <- reveg_long %>%
+  filter(Treatment=='S' & t_year==3) %>%
+  ggplot() +   
+  geom_boxplot()+   
+  aes(x=reorder(functional_group, desc(cover), FUN = median), y=cover) +
+  ylab("Cover of the various functional groups in the reference plots") +
+  theme(axis.text.x = element_text(angle = 90, vjust = 0.5, hjust=1))
+  
+plot_S +  theme(legend.position="bottom")
+```
+
+```{r}
+plot_C <- reveg_long %>%
+  filter(Treatment=='C' & t_year==3) %>%
+  ggplot() +   
+  geom_boxplot()+   
+  aes(x=reorder(functional_group, desc(cover), FUN = median), y=cover) +
+  ylab("Cover of the various functional groups in the reference plots") +
+  theme(axis.text.x = element_text(angle = 90, vjust = 0.5, hjust=1))
+  
+plot_C +  theme(legend.position="bottom")
+```
+
+```{r}
+
+mean_cover_ref <- reveg_var %>%
+  filter(Treatment == 'R') %>%
+  summarise(
+    mean_Sphagnum = mean(Sphagnum, na.rm = TRUE),
+    max_Sphagnum = max(Sphagnum, na.rm = TRUE),
+    mean_Eriopherum = mean(Eriopherum, na.rm = TRUE),
+    max_Eriopherum = max(Eriopherum, na.rm = TRUE),
+    mean_Narthecium = mean(Narthecium, na.rm = TRUE),
+    max_Narthecium = max(Narthecium, na.rm = TRUE),
+    mean_Trichophorum = mean(Trichophorum, na.rm = TRUE),
+    max_Trichophorum = max(Trichophorum, na.rm = TRUE),
+    mean_Evergreens = mean(Evergreens, na.rm = TRUE),
+    max_Evergreens = max(Evergreens, na.rm = TRUE),
+    mean_Litter = mean(Litter, na.rm = TRUE),
+    max_Litter = max(Litter, na.rm = TRUE),
+    mean_OtherMosses = mean(Other_mosses, na.rm = TRUE),
+    max_OtherMosses = max(Other_mosses, na.rm = TRUE)
+  ) %>%
+  pivot_longer(
+    cols = everything(),
+    names_to = c("variable", "statistic"),
+    names_sep = "_",
+    values_to = "value"
+  ) %>%
+  pivot_wider(
+    names_from = statistic,
+    values_from = value
+  )
+
+print(mean_cover_ref)
+
+```
+
+```{r}
+mean_cover_S_3 <- reveg_var %>%
+  filter(Treatment == 'S' & t_year==3) %>%
+  summarise(
+    mean_Sphagnum = mean(Sphagnum, na.rm = TRUE),
+    max_Sphagnum = max(Sphagnum, na.rm = TRUE),
+    mean_Eriopherum = mean(Eriopherum, na.rm = TRUE),
+    max_Eriopherum = max(Eriopherum, na.rm = TRUE),
+    mean_Narthecium = mean(Narthecium, na.rm = TRUE),
+    max_Narthecium = max(Narthecium, na.rm = TRUE),
+    mean_Trichophorum = mean(Trichophorum, na.rm = TRUE),
+    max_Trichophorum = max(Trichophorum, na.rm = TRUE),
+    mean_Evergreens = mean(Evergreens, na.rm = TRUE),
+    max_Evergreens = max(Evergreens, na.rm = TRUE),
+    mean_Litter = mean(Litter, na.rm = TRUE),
+    max_Litter = max(Litter, na.rm = TRUE),
+    mean_OtherMosses = mean(Other_mosses, na.rm = TRUE),
+    max_OtherMosses = max(Other_mosses, na.rm = TRUE)
+  ) %>%
+  pivot_longer(
+    cols = everything(),
+    names_to = c("variable", "statistic"),
+    names_sep = "_",
+    values_to = "value"
+  ) %>%
+  pivot_wider(
+    names_from = statistic,
+    values_from = value
+  )
+
+print(mean_cover_S_3)
+```
+
+```{r}
+mean_cover_M_3 <- reveg_var %>%
+  filter(Treatment == 'M' & t_year==3) %>%
+  summarise(
+    mean_Sphagnum = mean(Sphagnum, na.rm = TRUE),
+    max_Sphagnum = max(Sphagnum, na.rm = TRUE),
+    mean_Eriopherum = mean(Eriopherum, na.rm = TRUE),
+    max_Eriopherum = max(Eriopherum, na.rm = TRUE),
+    mean_Narthecium = mean(Narthecium, na.rm = TRUE),
+    max_Narthecium = max(Narthecium, na.rm = TRUE),
+    mean_Trichophorum = mean(Trichophorum, na.rm = TRUE),
+    max_Trichophorum = max(Trichophorum, na.rm = TRUE),
+    mean_Evergreens = mean(Evergreens, na.rm = TRUE),
+    max_Evergreens = max(Evergreens, na.rm = TRUE),
+    mean_Litter = mean(Litter, na.rm = TRUE),
+    max_Litter = max(Litter, na.rm = TRUE),
+    mean_OtherMosses = mean(Other_mosses, na.rm = TRUE),
+    max_OtherMosses = max(Other_mosses, na.rm = TRUE)
+  ) %>%
+  pivot_longer(
+    cols = everything(),
+    names_to = c("variable", "statistic"),
+    names_sep = "_",
+    values_to = "value"
+  ) %>%
+  pivot_wider(
+    names_from = statistic,
+    values_from = value
+  )
+
+print(mean_cover_M_3)
+```
+
+```{r}
+mean_cover_C_3 <- reveg_var %>%
+  filter(Treatment == 'C' & t_year==3) %>%
+  summarise(
+    mean_Sphagnum = mean(Sphagnum, na.rm = TRUE),
+    max_Sphagnum = max(Sphagnum, na.rm = TRUE),
+    mean_Eriopherum = mean(Eriopherum, na.rm = TRUE),
+    max_Eriopherum = max(Eriopherum, na.rm = TRUE),
+    mean_Narthecium = mean(Narthecium, na.rm = TRUE),
+    max_Narthecium = max(Narthecium, na.rm = TRUE),
+    mean_Trichophorum = mean(Trichophorum, na.rm = TRUE),
+    max_Trichophorum = max(Trichophorum, na.rm = TRUE),
+    mean_Evergreens = mean(Evergreens, na.rm = TRUE),
+    max_Evergreens = max(Evergreens, na.rm = TRUE),
+    mean_Litter = mean(Litter, na.rm = TRUE),
+    max_Litter = max(Litter, na.rm = TRUE),
+    mean_OtherMosses = mean(Other_mosses, na.rm = TRUE),
+    max_OtherMosses = max(Other_mosses, na.rm = TRUE)
+  ) %>%
+  pivot_longer(
+    cols = everything(),
+    names_to = c("variable", "statistic"),
+    names_sep = "_",
+    values_to = "value"
+  ) %>%
+  pivot_wider(
+    names_from = statistic,
+    values_from = value
+  )
+
+print(mean_cover_C_3)
+```
+
+Combine these outputs:
+
+```{r}
+# Add an identifier column to each table
+mean_cover_ref <- mean_cover_ref %>%
+  mutate(Treatment = "R")
+
+mean_cover_S_3 <- mean_cover_S_3 %>%
+  mutate(Treatment = "S_3")
+
+mean_cover_M_3 <- mean_cover_M_3 %>%
+  mutate(Treatment = "M_3")
+
+mean_cover_C_3 <- mean_cover_C_3 %>%
+  mutate(Treatment = "C_3")
+
+# Combine all tables into one
+combined_mean_cover <- bind_rows(mean_cover_ref, mean_cover_S_3, mean_cover_M_3, mean_cover_C_3)
+
+# Print the combined table
+print(combined_mean_cover)
+```
+
+```{r}
+reveg_var %>%
+  filter(Treatment == 'R') %>%
+  summarise(mean_cover = mean(Other_veg, na.rm = TRUE),
+            max_cover = max(Other_veg, na.rm= TRUE))
+
+```
+
+The reference plots have a high cover of Sphagnum (about 71% mean), and a decent cover of Narthecium, evergreens (mostly heather) and Trichophorum. There's also some litter (about 14%ish), while Eriopherum covers only ca. 3%)
 
 ```{r}
 mean_cover <- reveg_long %>%

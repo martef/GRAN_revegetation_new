@@ -1,5 +1,5 @@
 ---
-title: "2.2 Exploratory analysis effect of mulch on functional vegetation groups and nutrients"
+title: "2.2 Exploratory analysis effect of mulch on functional vegetation groups, nutrients and temperature"
 author: "MarteF"
 format: html
 editor: visual
@@ -10,6 +10,21 @@ editor: visual
 ```{r}
 library(tidyverse)
 library(vegan)
+library(ggrepel)
+library(ggridges)
+library(RColorBrewer)
+library(scales)
+library(brms) # bayesian approach to glmm, but with easier steps 
+library(posterior) # tools for working with posterior and prior distributions 
+library(lme4) # fit GLMM in frequentist framework 
+library(rstan) 
+library(bayesplot) 
+library(loo)  
+library(sjPlot)
+library(insight)
+rstan_options(auto_write = TRUE) 
+options(mc.cores = parallel::detectCores()) #To Make Stan run faster?
+
 ```
 
 ## Uploading data
@@ -114,7 +129,7 @@ pca_plot <- ggplot(pca_scores, aes(x = PC1, y = PC2)) +
   geom_point(aes(color = Location, shape = Treatment), size = 3) +
   stat_ellipse(aes(group = Treatment, color = Treatment), type = "norm", level = 0.95) +
   geom_segment(data = pca_loadings_scaled, aes(x = 0, y = 0, xend = PC1, yend = PC2), arrow = arrow(length = unit(0.2, "cm")), color = "blue") +
-  geom_text(data = pca_loadings_scaled, aes(x = PC1, y = PC2, label = variables), color = "black", vjust = 1.5) +
+  geom_text_repel(data = pca_loadings_scaled, aes(x = PC1, y = PC2, label = variables), color = "black", vjust = 1.5) +
   labs(title = "PCA of Variable Levels by Location and Treatment",
        x = "PC1",
        y = "PC2") +
@@ -129,6 +144,33 @@ print(pca_plot)
 #ggsave("pca_nutrient_levels.png", plot = pca_plot, width = 10, height = 8, dpi = 300)
 ```
 
+```{r}
+
+# Extract variance explained by each principal component
+variance_explained <- pca_result$sdev^2 / sum(pca_result$sdev^2)
+
+# Combine variance explained and loadings into a tibble for easy viewing
+pca_summary <- tibble(
+  Component = colnames(pca_result$rotation),
+  Variance_Explained = variance_explained
+)
+
+# Merge the variance explained with the loadings
+pca_summary <- pca_loadings %>%
+  pivot_longer(cols = -variables, names_to = "Component", values_to = "Loading") %>%
+  left_join(pca_summary, by = "Component")
+
+# Display the PCA summary
+print(pca_summary)
+
+```
+
+```{r}
+pca_summary_sorted_by_PC <- pca_summary %>%
+  arrange(Component)
+print(pca_summary_sorted_by_PC)
+```
+
 ### PCA Functional Groups Only (only C & M)
 
 ```{r}
@@ -137,39 +179,226 @@ print(pca_plot)
 filtered_data_fg <- reveg_var_pca %>%
   filter(complete.cases(across(Roughness:Temp_water)))
 
-# Remove columns with zero variance
-non_zero_var_columns_fg <- filtered_data %>%
-  select(Roughness:Temp_water) %>%
+# Step 2: Remove columns with zero variance
+numeric_columns_fg <- filtered_data_fg %>%
+  select(Roughness:Temp_water)
+
+non_zero_var_columns_fg <- numeric_columns_fg %>%
   select(where(~ var(.) != 0))
+
+# Update filtered_data_fg to match the rows used in PCA
+filtered_data_fg <- filtered_data_fg %>%
+  select(Location, Treatment) %>%
+  slice(which(complete.cases(numeric_columns_fg)))
 
 
 # Step 2: Perform PCA
-pca_result <- prcomp(non_zero_var_columns_fg, scale. = TRUE)
+pca_result2 <- prcomp(non_zero_var_columns_fg, scale. = TRUE)
 
 # Step 3: Extract and Bind Scores
 # Extract PCA scores
-pca_scores <- as_tibble(pca_result$x) %>%
-  bind_cols(filtered_data_fg %>% select(Treatment))
+pca_scores2 <- as_tibble(pca_result2$x) %>%
+  bind_cols(filtered_data_fg %>% select(Location, Treatment))
 
 # Extract PCA loadings
-pca_loadings <- as_tibble(pca_result$rotation, rownames = "variables")
+pca_loadings2 <- as_tibble(pca_result2$rotation, rownames = "fgs")
 
 # Step 5: Scale the Loadings for Better Visualization
-scaling_factor <- max(abs(pca_scores$PC1))
-pca_loadings_scaled <- pca_loadings %>%
-  mutate(across(-variables, ~ . * scaling_factor))
+scaling_factor2 <- max(abs(pca_scores2$PC1))
+pca_loadings_scaled2 <- pca_loadings2 %>%
+  mutate(across(-fgs, ~ . * scaling_factor2))
 
 # Create the PCA plot with separate layers for scores and loadings
-pca_plot <- ggplot(pca_scores, aes(x = PC1, y = PC2)) +
+pca_plot2 <- ggplot(pca_scores2, aes(x = PC1, y = PC2)) +
   geom_point(aes(color = Location, shape = Treatment), size = 3) +
   stat_ellipse(aes(group = Treatment, color = Treatment), type = "norm", level = 0.95) +
-  geom_segment(data = pca_loadings_scaled, aes(x = 0, y = 0, xend = PC1, yend = PC2), arrow = arrow(length = unit(0.2, "cm")), color = "blue") +
-  geom_text(data = pca_loadings_scaled, aes(x = PC1, y = PC2, label = variables), color = "black", vjust = 1.5) +
-  labs(title = "PCA of Variable Levels by Location and Treatment",
+  geom_segment(data = pca_loadings_scaled2, aes(x = 0, y = 0, xend = PC1, yend = PC2), arrow = arrow(length = unit(0.2, "cm")), color = "blue") +
+  geom_text_repel(data = pca_loadings_scaled2, aes(x = PC1, y = PC2, label = fgs), color = "black", vjust = 1.5, size=3) +
+  labs(title = "PCA of Functional plant group cover by location and treatment",
        x = "PC1",
        y = "PC2") +
   theme_minimal()
 
+#ggsave(pca_plot2, filename='../figures/pca_fpg.png')
+
 # Print the plot
-print(pca_plot)
+print(pca_plot2)
+```
+
+```{r}
+# Extract variance explained by each principal component
+variance_explained2 <- pca_result2$sdev^2 / sum(pca_result2$sdev^2)
+
+# Combine variance explained and loadings into a tibble for easy viewing
+pca_summary2 <- tibble(
+  Component = colnames(pca_result2$rotation),
+  Variance_Explained = variance_explained2
+)
+
+# Merge the variance explained with the loadings
+pca_summary2 <- pca_loadings2 %>%
+  pivot_longer(cols = -fgs, names_to = "Component", values_to = "Loading") %>%
+  left_join(pca_summary2, by = "Component")
+
+# Display the PCA summary
+print(pca_summary2)
+```
+
+```{r}
+pca_summary2_sorted_by_PC <- pca_summary2 %>%
+  arrange(Component)
+print(pca_summary2_sorted_by_PC)
+```
+
+I want to try this again, without Roughness and Slope.
+
+```{r}
+# Step 1: Prepare the Data
+# Filter out rows with any NA values in the relevant columns
+filtered_data_fg2 <- reveg_var_pca %>%
+  filter(complete.cases(across(Sphagnum:Temp_water)))
+  
+
+# Step 2: Remove columns with zero variance
+numeric_columns_fg2 <- filtered_data_fg2 %>%
+  select(Sphagnum:Temp_water)
+
+non_zero_var_columns_fg2 <- numeric_columns_fg2 %>%
+  select(where(~ var(.) != 0))
+
+# Update filtered_data_fg to match the rows used in PCA
+filtered_data_fg2 <- filtered_data_fg2 %>%
+  select(Location, Treatment) %>%
+  slice(which(complete.cases(numeric_columns_fg2)))
+
+
+# Step 2: Perform PCA
+pca_result3 <- prcomp(non_zero_var_columns_fg2, scale. = TRUE)
+
+# Step 3: Extract and Bind Scores
+# Extract PCA scores
+pca_scores3 <- as_tibble(pca_result3$x) %>%
+  bind_cols(filtered_data_fg2 %>% select(Location, Treatment))
+
+# Extract PCA loadings
+pca_loadings3 <- as_tibble(pca_result3$rotation, rownames = "fgs")
+
+# Step 5: Scale the Loadings for Better Visualization
+scaling_factor3 <- max(abs(pca_scores3$PC1))
+pca_loadings_scaled3 <- pca_loadings3 %>%
+  mutate(across(-fgs, ~ . * scaling_factor3))
+
+# Create the PCA plot with separate layers for scores and loadings
+pca_plot3 <- ggplot(pca_scores3, aes(x = PC1, y = PC2)) +
+  geom_point(aes(color = Location, shape = Treatment), size = 3) +
+  stat_ellipse(aes(group = Treatment, color = Treatment), type = "norm", level = 0.95) +
+  geom_segment(data = pca_loadings_scaled3, aes(x = 0, y = 0, xend = PC1, yend = PC2), arrow = arrow(length = unit(0.2, "cm")), color = "blue") +
+  geom_text_repel(data = pca_loadings_scaled3, aes(x = PC1, y = PC2, label = fgs), color = "black", vjust = 1.5, size=3) +
+  labs(title = "PCA of Functional plant group cover by location and treatment",
+       x = "PC1",
+       y = "PC2") +
+  theme_minimal()
+
+#ggsave(pca_plot3, filename='../figures/pca_fpg2.png')
+
+# Print the plot
+print(pca_plot3)
+```
+
+```{r}
+# Extract variance explained by each principal component
+variance_explained3 <- pca_result3$sdev^2 / sum(pca_result3$sdev^2)
+
+# Combine variance explained and loadings into a tibble for easy viewing
+pca_summary3 <- tibble(
+  Component = colnames(pca_result3$rotation),
+  Variance_Explained = variance_explained3
+)
+
+# Merge the variance explained with the loadings
+pca_summary3 <- pca_loadings3 %>%
+  pivot_longer(cols = -fgs, names_to = "Component", values_to = "Loading") %>%
+  left_join(pca_summary3, by = "Component")
+
+pca_summary3_sorted_by_PC <- pca_summary3 %>%
+  arrange(Component, Loading)
+print(pca_summary3_sorted_by_PC)
+```
+
+```{r}
+temp <- readr::read_delim('../data/soil_mean_season.csv',                                    
+                         delim = ',',                                   
+                         col_names = TRUE)
+
+```
+
+## Soil temperatures
+
+```{r}
+temp %>%
+  #filter(!is.na(Sphagnum)) %>%  # Exclude NA values in the Sphagnum column
+  ggplot(aes(x = soil_gs_mean)) +
+  geom_histogram(binwidth = 0.1, fill = "blue", color = "black", alpha = 0.7) +
+  labs(title = "Histogram of Soil Temperature Values",
+       x = "Temperature",
+       y = "Frequency")
+```
+
+```{r}
+denplot_temp_mean <- ggplot(temp, aes(x = soil_gs_mean, y = Treatment, fill = Treatment)) + 
+  geom_density_ridges(
+    quantile_lines = TRUE, scale = 2, alpha = 1,
+    vline_width = 0.2, vline_color = "black", rel_min_height = 0.01) +
+  theme_minimal() +
+  labs(y = "Treatment", x = "Soil Temperature") +
+  guides(fill = guide_legend(reverse = TRUE)) +
+  scale_fill_brewer(palette="Dark2")
+
+
+#ggsave(denplot_temp, filename='../figures/densityplot_soil_temp_mean.png')
+print(denplot_temp_mean)
+```
+
+```{r}
+denplot_temp_max <- ggplot(temp, aes(x = soil_gs_max, y = Treatment, fill = Treatment)) + 
+  geom_density_ridges(
+    quantile_lines = TRUE, scale = 2, alpha = 1,
+    vline_width = 0.2, vline_color = "black", rel_min_height = 0.01) +
+  theme_minimal() +
+  labs(y = "Treatment", x = "Soil Temperature") +
+  guides(fill = guide_legend(reverse = TRUE)) +
+  scale_fill_brewer(palette="Dark2")
+
+
+#ggsave(denplot_temp, filename='../figures/densityplot_soil_temp_mean.png')
+print(denplot_temp_max)
+```
+
+```{r}
+denplot_temp_min <- ggplot(temp, aes(x = soil_gs_min, y = Treatment, fill = Treatment)) + 
+  geom_density_ridges(
+    quantile_lines = TRUE, scale = 2, alpha = 1,
+    vline_width = 0.2, vline_color = "black", rel_min_height = 0.01) +
+  theme_minimal() +
+  labs(y = "Treatment", x = "Soil Temperature") +
+  guides(fill = guide_legend(reverse = TRUE)) +
+  scale_fill_brewer(palette="Dark2")
+
+
+#ggsave(denplot_temp, filename='../figures/densityplot_soil_temp_mean.png')
+print(denplot_temp_min)
+```
+
+```{r}
+# H1.Sph.beta<-   brm(Sphagnum_beta/100 ~ Treatment + WT_total_days_below_sum + WT_consecutive_days_below_max + WT_mean + (1 | Location/Sublocation),
+#                    data=H1.Sph,
+#                  Beta(link = "logit", link_phi = "log"),
+#                 chains = 4, # nb of chains
+#                  iter = 4000, # nb of iterations, including burnin
+#                  warmup = 1000, # burnin
+#                  thin = 3,
+#                 control = list(adapt_delta = 0.99, max_treedepth = 15))
+
+#saveRDS(H1.Sph.beta, 'RDS-files/H1.Sph.beta.RDS')
+readRDS(H1.Sph.beta, 'RDS-files/H1.Sph.beta.RDS')
 ```

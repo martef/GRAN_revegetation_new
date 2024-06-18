@@ -18,7 +18,7 @@ library(timetk)
 ## Uploading and cleaning data
 
 ```{r}
-soil <- readr::read_delim('C:/Users/martef/DokumenterIntern/GitHub/GRAN_revegetation_new/data/soil_temp_good.csv', 
+soil <- readr::read_delim('../data/soil_temp_good.csv', 
                                   delim = ',',
                                   col_names = TRUE)
 
@@ -149,6 +149,10 @@ hist(soil_growth$Temp, breaks = breaks, xlab = "Temperatures")
 Way better!
 
 ```{r}
+write.csv(soil_growth, file="../data/soil_growth.csv")
+```
+
+```{r}
 soil_plot2 <- soil_growth %>%
     ggplot(aes(x = DateTime, y = Temp, color=Treatment)) +
     geom_line(na.rm = TRUE) +
@@ -199,4 +203,61 @@ soil_mean_season <-soil_growth %>%
 soil_mean_season
 
 #write.csv(soil_mean_season, file='../data/soil_mean_season.csv')
+```
+
+## Summary
+
+```{r}
+se <- function(x) {
+  sd(x) / sqrt(length(x))
+}
+
+```
+
+```{r}
+#Overall summary by Treatment
+overall_summary <- soil_mean_season %>%
+  group_by(Treatment) %>%
+  summarise(
+    mean_soil_gs_mean = mean(soil_gs_mean, na.rm = TRUE),
+    se_soil_gs_mean = se(soil_gs_mean),
+    mean_soil_gs_max = mean(soil_gs_max, na.rm = TRUE),
+    se_soil_gs_max = se(soil_gs_max),
+    mean_soil_gs_min = mean(soil_gs_min, na.rm = TRUE),
+    se_soil_gs_min = se(soil_gs_min)
+  )
+
+print(overall_summary)
+```
+
+```{r}
+#Summary by Location and Treatment
+location_summary <- soil_mean_season %>%
+  group_by(Location, Treatment) %>%
+  summarise(
+    mean_soil_gs_mean = mean(soil_gs_mean, na.rm = TRUE),
+    se_soil_gs_mean = se(soil_gs_mean),
+    mean_soil_gs_max = mean(soil_gs_max, na.rm = TRUE),
+    se_soil_gs_max = se(soil_gs_max),
+    mean_soil_gs_min = mean(soil_gs_min, na.rm = TRUE),
+    se_soil_gs_min = se(soil_gs_min)
+  )
+
+print(location_summary)
+```
+
+```{r}
+#Summary by Location and Treatment
+location_summary <- soil_mean_season %>%
+  group_by(Location, Treatment, Sublocation) %>%
+  summarise(
+    mean_soil_gs_mean = mean(soil_gs_mean, na.rm = TRUE),
+    se_soil_gs_mean = se(soil_gs_mean),
+    mean_soil_gs_max = mean(soil_gs_max, na.rm = TRUE),
+    se_soil_gs_max = se(soil_gs_max),
+    mean_soil_gs_min = mean(soil_gs_min, na.rm = TRUE),
+    se_soil_gs_min = se(soil_gs_min)
+  )
+
+print(location_summary)
 ```
