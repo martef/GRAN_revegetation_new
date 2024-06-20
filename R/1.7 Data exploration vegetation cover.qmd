@@ -45,7 +45,7 @@ reveg_var <- reveg_var %>%
   relocate(Shrubs_Trees, .after = Seedlings)  
 ```
 
-### Other vegetation cover
+## Other vegetation cover
 
 Summarising all the other interesting cover groups (Mulch, Bare_peat, Other_veg, Total_veg)
 
@@ -112,7 +112,7 @@ reveg_var%>%
 
 7 plots have higher ground cover than 120%. Most of this is due to overlap with mulch, and I have gone through the photos of each and double checked and altered any cover percentages that seemed a little wrong. All ok now.
 
-### Exploring specific species groups
+## Exploring specific species groups
 
 Creating long format of species functional groups:
 
@@ -338,14 +338,6 @@ reveg_var %>%
 
 The reference plots have a high cover of Sphagnum (about 71% mean), and a decent cover of Narthecium, evergreens (mostly heather) and Trichophorum. There's also some litter (about 14%ish), while Eriopherum covers only ca. 3%)
 
-```{r}
-mean_cover <- reveg_long %>%
-  filter(Treatment == 'R') %>%
-  group_by(functional_group) %>%
-  summarise(mean_cover = mean(cover, na.rm = TRUE))
-print(mean_cover)
-```
-
 The natural cover of Eriopherum is quite low, which is interesting to compare to the experimental plots, as this is a plant that increases rapidly in newly rewetted peatlands. In the experimental plots:
 
 ```{r}
@@ -415,3 +407,197 @@ plot_hea +  theme(legend.position="bottom")
 ```
 
 There is an interesting increase in heathers within the Sphagnum treatments. This is also partly visible within the mulch plots. The means are still low, but several plots seem to have had a great development in heather cover within the time period. In contrast to the Eriopherum, the Heather cover is still not fully reaching the levels of the references after 3 years.
+
+## Violin plot of total vegetation cover, other vegetation cover and Sphagnum
+
+```{r}
+
+plot_SP <- reveg_var %>%
+  filter(!is.na(Sphagnum)) %>%  # Exclude NA values in the Sphagnum column
+  mutate(Treatment = factor(Treatment, levels = c("C", "M", "S", "R"))) %>%  # Rearrange Treatment levels
+  ggplot(aes(x = Treatment, y = Sphagnum, color = as.factor(t_year), fill=as.factor(t_year), alpha=0.8)) +   
+  geom_violin(scale = "width", width= 0.8) +   
+  geom_point(pch = 21, size=1, position = position_jitterdodge())+
+  ylab("Sphagnum cover") +
+  labs(fill= "Growth seasons since treatment") +
+  theme_minimal() +
+   scale_fill_brewer(palette="Dark2") +
+  scale_color_brewer(palette="Dark2") +
+  guides(color = "none", alpha = "none")
+
+plot_SP
+
+ggsave(plot_SP, filename='../figures/violinplot_SP.png')
+```
+
+```{r}
+plot_TV <- reveg_var %>%
+  filter(!is.na(Total_veg)) %>%  # Exclude NA values in the Sphagnum column
+   mutate(Treatment = factor(Treatment, levels = c("C", "M", "S", "R"))) %>%  # Rearrange Treatment levels
+  ggplot(aes(x = Treatment, y = Total_veg, color = as.factor(t_year), fill=as.factor(t_year), alpha=0.8)) +   
+  geom_violin(scale = "width", width= 0.8) +  
+ geom_point(pch = 21,, size=1, position = position_jitterdodge())+
+  ylab("Total vegetation cover") +
+  labs(fill= "Growth seasons since treatment") +
+  theme_minimal() +
+   scale_fill_brewer(palette="Dark2") +
+  scale_color_brewer(palette="Dark2") +
+  guides(color = "none", alpha = "none")
+
+plot_TV
+ggsave(plot_TV, filename='../figures/violinplot_TV.png')
+```
+
+```{r}
+plot_OV <- reveg_var %>%
+  filter(!is.na(Other_veg)) %>%  # Exclude NA values in the Sphagnum column
+   mutate(Treatment = factor(Treatment, levels = c("C", "M", "S", "R"))) %>%  # Rearrange Treatment levels
+  ggplot(aes(x = Treatment, y = Other_veg, color = as.factor(t_year), fill=as.factor(t_year), alpha=0.8)) +   
+  geom_violin(scale = "width", width= 0.8) +   
+  geom_point(pch = 21, size=1, position = position_jitterdodge())+
+  ylab("Total cover of other vegetation") +
+  labs(fill= "Growth seasons since treatment") +
+  theme_minimal() +
+   scale_fill_brewer(palette="Dark2") +
+  scale_color_brewer(palette="Dark2") +
+  guides(color = "none", alpha = "none")
+
+plot_OV
+
+ggsave(plot_OV, filename='../figures/violinplot_OV.png')
+```
+
+## 
+
+## Full summary
+
+```{r}
+# Function to calculate the standard error
+se <- function(x) {
+  sd(x, na.rm = TRUE) / sqrt(sum(!is.na(x)))
+}
+
+# Summarize the data
+summary <- reveg_long %>%
+  group_by(functional_group, t_year, Treatment) %>%
+  summarise(mean = mean(cover, na.rm = TRUE),
+            median = median(cover, na.rm = TRUE),
+            se = se(cover),
+            max = max(cover, na.rm = TRUE),
+            .groups = 'drop')
+
+# Pivot the summary data to a wide format
+summary_wide <- summary %>%
+  pivot_wider(names_from = t_year, 
+              values_from = c(mean, median, se, max), 
+              names_glue = "{.value}_year_{t_year}")
+
+# Explicitly order the columns
+summary_wide <- summary_wide %>%
+  select(functional_group, Treatment,
+         mean_year_0, median_year_0, se_year_0, max_year_0,
+         mean_year_2, median_year_2, se_year_2, max_year_2,
+         mean_year_3, median_year_3, se_year_3, max_year_3)
+
+# Print the final summary table
+print
+
+write.csv(summary_wide, file='summary_FGTs.csv')
+```
+
+```{r}
+reveg_var%>%
+  dplyr::select(c(Location, Sublocation, Block, Treatment, Treatment_ID, t_year, Other_veg, Total_veg, Field, Veg_Ground, Tot_Ground))%>%
+  group_by(Treatment, t_year) %>%
+  summarise(Other_veg_mean = mean(Other_veg),
+            Other_veg_median = median(Other_veg),
+            Other_veg_se = se(Other_veg),
+            Other_veg_max = max(Other_veg),
+            Field_mean = mean(Field),
+            Field_median = median(Field),
+            Field_se = se(Field),
+            Field_max = max(Field),
+            Veg_Ground_mean = mean(Veg_Ground),
+            Veg_Ground_median = median(Veg_Ground),
+            Veg_Ground_se = se(Veg_Ground),
+            Veg_Ground_max = max(Veg_Ground),
+            Tot_Ground_mean = mean(Tot_Ground),
+            Tot_Ground_median = median(Tot_Ground),
+            Tot_Ground_se = se(Tot_Ground),
+            Tot_Ground_max = max(Tot_Ground),
+            Tot_Veg_mean = mean(Total_veg),
+            Tot_Veg_median = median(Total_veg),
+            Tot_Veg_se = se(Total_veg),
+            Tot_Veg_max = max(Total_veg),
+             total_N = n()) 
+```
+
+```{r}
+
+# Define your data summarization
+reveg_summary <- reveg_var %>%
+  dplyr::select(c(Location, Sublocation, Block, Treatment, Treatment_ID, t_year, Other_veg, Total_veg, Field, Veg_Ground, Tot_Ground)) %>%
+  group_by(Treatment, t_year) %>%
+  summarise(
+    Other_veg_mean = mean(Other_veg, na.rm = TRUE),
+    Other_veg_median = median(Other_veg, na.rm = TRUE),
+    Other_veg_se = sd(Other_veg, na.rm = TRUE) / sqrt(n()),
+    Other_veg_max = max(Other_veg, na.rm = TRUE),
+    Field_mean = mean(Field, na.rm = TRUE),
+    Field_median = median(Field, na.rm = TRUE),
+    Field_se = sd(Field, na.rm = TRUE) / sqrt(n()),
+    Field_max = max(Field, na.rm = TRUE),
+    Veg_Ground_mean = mean(Veg_Ground, na.rm = TRUE),
+    Veg_Ground_median = median(Veg_Ground, na.rm = TRUE),
+    Veg_Ground_se = sd(Veg_Ground, na.rm = TRUE) / sqrt(n()),
+    Veg_Ground_max = max(Veg_Ground, na.rm = TRUE),
+    Tot_Ground_mean = mean(Tot_Ground, na.rm = TRUE),
+    Tot_Ground_median = median(Tot_Ground, na.rm = TRUE),
+    Tot_Ground_se = sd(Tot_Ground, na.rm = TRUE) / sqrt(n()),
+    Tot_Ground_max = max(Tot_Ground, na.rm = TRUE),
+    Tot_Veg_mean = mean(Total_veg, na.rm = TRUE),
+    Tot_Veg_median = median(Total_veg, na.rm = TRUE),
+    Tot_Veg_se = sd(Total_veg, na.rm = TRUE) / sqrt(n()),
+    Tot_Veg_max = max(Total_veg, na.rm = TRUE)
+  )
+
+# Pivot to long format for variables
+reveg_long <- reveg_summary %>%
+  pivot_longer(
+    cols = -c(Treatment, t_year),
+    names_to = c("Variable", "Statistic"),
+     names_pattern = "(.*)_(mean|median|se|max)"
+  )
+
+# Pivot to wide format for years, ensuring correct order
+reveg_wide <- reveg_long %>%
+  pivot_wider(
+    names_from = c(t_year, Statistic),
+    values_from = value,
+    names_glue = "{t_year}_{Statistic}"
+  )
+
+
+# Arrange the columns to have Variable, Treatment first, then statistics for each year
+ordered_columns <- c(
+  "Variable", "Treatment",
+  "0_mean", "0_median", "0_se", "0_max",
+  "2_mean", "2_median", "2_se", "2_max",
+  "3_mean", "3_median", "3_se", "3_max"
+)
+
+reveg_wide <- reveg_wide %>%
+  select(any_of(ordered_columns))
+
+# Order the Treatment column
+treatment_order <- c("C", "M", "S", "R")
+
+# Arrange by Variable and then by specified Treatment order
+reveg_wide <- reveg_wide %>%
+  arrange(Variable, factor(Treatment, levels = treatment_order))
+
+reveg_wide
+```
+
+\
+\

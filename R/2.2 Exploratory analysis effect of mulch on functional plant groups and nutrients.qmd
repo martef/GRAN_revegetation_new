@@ -29,8 +29,6 @@ options(mc.cores = parallel::detectCores()) #To Make Stan run faster?
 
 ## Uploading data
 
-When you click the **Render** button a document will be generated that includes both content and the output of embedded code. You can embed code like this:
-
 ```{r}
 reveg_var <- readr::read_delim('../data/reveg_var.csv',                                    
                          delim = ',',                                   
@@ -44,10 +42,22 @@ reveg_var <- reveg_var %>%
 ```
 
 ```{r}
+#Renaming and combining several of the field groups into more coherent functional groups:
+
+reveg_var <- reveg_var %>%
+  rename(Liverworts = Livermosses, Rushes = Sedges, Evergreens = Heathers) %>% #rename misnamed groups
+  mutate(Shrubs_Trees = Trees + Bushes + Bet_nan,       # combine Trees, Bushes, and Bet_nan into Shrubs_Trees
+         Carex = Carex + Rhynchospora,                   # join Rhyncospora into Carex
+         Herbs = Herbs + Oxycoccus + Drosera)    %>%       # join Oxycoccus and Drosera into Herbs
+ select(-Trees, -Bushes, -Bet_nan, -Rhynchospora, -Oxycoccus, -Drosera)  %>% # remove the old columns
+  relocate(Shrubs_Trees, .after = Seedlings)  
+```
+
+```{r}
 # Pivoting functional plant groups
 reveg_var_long_fg <- reveg_var %>%
-  select(c(Location:Treatment_ID, t_year:Temp_water)) %>%
-  pivot_longer(cols = Sphagnum:Temp_water, 
+  select(c(Location:Treatment_ID, t_year:Dead_wood)) %>%
+  pivot_longer(cols = Sphagnum:Dead_wood, 
                names_to = 'functional_group', 
                values_to = 'cover')
 
@@ -74,7 +84,7 @@ reveg_var_long <- reveg_var_long %>%
 #Subsetting functional vegetation groups to only data for year 3
 reveg_fg_y3 <- reveg_var %>%
   filter(t_year=='3') %>%
-  select(c(Location:Treatment_ID, Roughness:Temp_water))
+  select(c(Location:Treatment_ID, Sphagnum:Dead_wood))
 
 #Subsetting to only include C and M
 reveg_fg_y3_CM <- reveg_fg_y3 %>%
@@ -177,11 +187,11 @@ print(pca_summary_sorted_by_PC)
 # Step 1: Prepare the Data
 # Filter out rows with any NA values in the relevant columns
 filtered_data_fg <- reveg_var_pca %>%
-  filter(complete.cases(across(Roughness:Temp_water)))
+  filter(complete.cases(across(Sphagnum:Dead_wood)))
 
 # Step 2: Remove columns with zero variance
 numeric_columns_fg <- filtered_data_fg %>%
-  select(Roughness:Temp_water)
+  select(Sphagnum:Dead_wood)
 
 non_zero_var_columns_fg <- numeric_columns_fg %>%
   select(where(~ var(.) != 0))
@@ -213,13 +223,11 @@ pca_plot2 <- ggplot(pca_scores2, aes(x = PC1, y = PC2)) +
   geom_point(aes(color = Location, shape = Treatment), size = 3) +
   stat_ellipse(aes(group = Treatment, color = Treatment), type = "norm", level = 0.95) +
   geom_segment(data = pca_loadings_scaled2, aes(x = 0, y = 0, xend = PC1, yend = PC2), arrow = arrow(length = unit(0.2, "cm")), color = "blue") +
-  geom_text_repel(data = pca_loadings_scaled2, aes(x = PC1, y = PC2, label = fgs), color = "black", vjust = 1.5, size=3) +
-  labs(title = "PCA of Functional plant group cover by location and treatment",
-       x = "PC1",
+  geom_text_repel(data = pca_loadings_scaled2, aes(x = PC1, y = PC2, label = fgs), color = "black", vjust = 1.5, size = 3.5, max.overlaps = Inf) +
+  labs(x = "PC1",
        y = "PC2") +
   theme_minimal()
-
-#ggsave(pca_plot2, filename='../figures/pca_fpg.png')
+ggsave(pca_plot2, filename='../figures/pca_fpg.png')
 
 # Print the plot
 print(pca_plot2)
@@ -250,18 +258,18 @@ pca_summary2_sorted_by_PC <- pca_summary2 %>%
 print(pca_summary2_sorted_by_PC)
 ```
 
-I want to try this again, without Roughness and Slope.
+I want to try this again, but without Mulch and Bare peat:
 
 ```{r}
 # Step 1: Prepare the Data
 # Filter out rows with any NA values in the relevant columns
 filtered_data_fg2 <- reveg_var_pca %>%
-  filter(complete.cases(across(Sphagnum:Temp_water)))
-  
+  filter(complete.cases(across(Sphagnum:Dead_wood))) %>%
+  select(-c(Mulch, Bare_peat, Litter, Dead_wood))
 
 # Step 2: Remove columns with zero variance
 numeric_columns_fg2 <- filtered_data_fg2 %>%
-  select(Sphagnum:Temp_water)
+  select(Sphagnum:Shrubs_Trees)
 
 non_zero_var_columns_fg2 <- numeric_columns_fg2 %>%
   select(where(~ var(.) != 0))
@@ -290,16 +298,15 @@ pca_loadings_scaled3 <- pca_loadings3 %>%
 
 # Create the PCA plot with separate layers for scores and loadings
 pca_plot3 <- ggplot(pca_scores3, aes(x = PC1, y = PC2)) +
-  geom_point(aes(color = Location, shape = Treatment), size = 3) +
+  geom_point(aes(color = Treatment, shape = Location), size = 3) +
   stat_ellipse(aes(group = Treatment, color = Treatment), type = "norm", level = 0.95) +
   geom_segment(data = pca_loadings_scaled3, aes(x = 0, y = 0, xend = PC1, yend = PC2), arrow = arrow(length = unit(0.2, "cm")), color = "blue") +
-  geom_text_repel(data = pca_loadings_scaled3, aes(x = PC1, y = PC2, label = fgs), color = "black", vjust = 1.5, size=3) +
-  labs(title = "PCA of Functional plant group cover by location and treatment",
-       x = "PC1",
+  geom_text_repel(data = pca_loadings_scaled3, aes(x = PC1, y = PC2, label = fgs), color = "black", vjust = 1.5, size = 3.5, max.overlaps = Inf) +
+  labs(x = "PC1",
        y = "PC2") +
   theme_minimal()
 
-#ggsave(pca_plot3, filename='../figures/pca_fpg2.png')
+ggsave(pca_plot3, filename='../figures/pca_fpg4.png')
 
 # Print the plot
 print(pca_plot3)
@@ -320,10 +327,17 @@ pca_summary3 <- pca_loadings3 %>%
   pivot_longer(cols = -fgs, names_to = "Component", values_to = "Loading") %>%
   left_join(pca_summary3, by = "Component")
 
+# Display the PCA summary
+print(pca_summary3)
+```
+
+```{r}
 pca_summary3_sorted_by_PC <- pca_summary3 %>%
-  arrange(Component, Loading)
+  arrange(Component)
 print(pca_summary3_sorted_by_PC)
 ```
+
+## Soil temperatures
 
 ```{r}
 temp <- readr::read_delim('../data/soil_mean_season.csv',                                    
@@ -331,8 +345,6 @@ temp <- readr::read_delim('../data/soil_mean_season.csv',
                          col_names = TRUE)
 
 ```
-
-## Soil temperatures
 
 ```{r}
 temp %>%
@@ -343,6 +355,8 @@ temp %>%
        x = "Temperature",
        y = "Frequency")
 ```
+
+### Density plots
 
 ```{r}
 denplot_temp_mean <- ggplot(temp, aes(x = soil_gs_mean, y = Treatment, fill = Treatment)) + 

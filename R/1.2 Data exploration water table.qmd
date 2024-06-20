@@ -13,6 +13,8 @@ library(readr)
 library(lubridate)
 library(scales)
 library(gridExtra)
+library(timetk)
+
 
 ```
 
@@ -202,7 +204,7 @@ wt_season %>%
 
 Everything fine with this one as well.
 
-Both BSM2 and BSM3 seem to be quite stable at closer to -10cm, and barely reach 0cm (water table at surface level). They might have been compensate somewhat wrongly (a few cm), but it might not matter very much. The trend is still clear, with stable water tables close to the surface (\>-20cm).
+Both BSM2 and BSM3 seem to be quite stable at closer to -10cm, and barely reach 0cm (water table at surface level). They might have been compensate somewhat wrongly (a few cm), but it might not matter very much. The trend is still clear, with stable water tables close to the surface (\<-20cm).
 
 ```{r}
 wt_all %>%
@@ -291,13 +293,47 @@ wt_season <- wt_season %>%
 ```{r}
 #Testing the summarise_by_time function
 daily_means <- wt_season %>%
-  group_by(Station_ID) %>%
+  mutate(Location = case_when(
+    grepl("^BSM", Station_ID) ~ "BSM",
+    grepl("^VSM", Station_ID) ~ "VSM",
+    grepl("^HM", Station_ID) ~ "HM",
+    TRUE ~ NA_character_  # This handles any cases not matching the specified pattern
+  )) %>%
+  group_by(Station_ID, Location, jday, month_name) %>%
  summarise_by_time(.date_var=DateTime,
                     .by="day",
                     daily_mean = mean(LEVEL), daily_max = max(LEVEL), daily_min= min(LEVEL))
 
 #write.csv(daily_means, file="./data/wt_daily_means.csv")
 daily_means
+```
+
+### Create plots with daily mean
+
+```{r}
+# Get unique Station_IDs
+unique_stations <- unique(daily_means$Station_ID)
+
+# Create a separate figure for each Station_ID
+for (station in unique_stations) {
+  station_data <- daily_means%>%
+    filter(Station_ID == station)
+  
+  station_season_plot_dailymean <- station_data %>%
+    ggplot(aes(x = jday, y = daily_mean, color = factor(month_name))) +
+    geom_line(na.rm=TRUE) +
+    labs(title = paste("Water Table Levels for Station ID", station),
+         x = "Julian Date",
+         y = "Mean WT",
+         color = "Month") +
+    geom_hline(yintercept=-0.2, linetype='dashed', color='blue')+
+    theme_minimal() +
+    facet_grid(year~.)+
+    scale_color_viridis_d() + 
+    theme(legend.position = "bottom")
+  
+  print(station_season_plot_dailymean)
+}
 ```
 
 ## Monthly mean, max and min WT
@@ -340,6 +376,16 @@ gs <-wt_season%>%
 gs
 ```
 
+By location
+
+```{r}
+gs_loc <- wt_season %>%
+  group_by(Location, year)%>%
+  summarise_by_time(.date_var=DateTime,
+                    .by="year", gs_mean = mean(LEVEL), gs_max = max(LEVEL), gs_min = min(LEVEL) )
+gs_loc
+```
+
 ## Days with WT below -0.2m within growth season
 
 ```{r}
@@ -372,32 +418,6 @@ total_days_below_minus_0.2_complete <- total_days_below_minus_0.2_complete %>%
    filter(!(Station_ID %in% c("BSM1", "BSM2", "BSM3") & year == '2020'))
 
 total_days_below_minus_0.2_complete
-```
-
-```{r}
-# Count the days with a daily mean below -0.2 per month and station
-days_below_minus_0.2_month <- daily_means %>%
-  filter(daily_mean < -0.2) %>%
-  group_by(Station_ID, year, month) %>%
-  summarise(total_days = n_distinct(DateTime))%>%
- ungroup()
-
-# Create a data frame with all combinations of year, month, and Station_ID
-all_combinations <- expand.grid(
-  year = unique(daily_means$year),
-  month = unique(daily_means$month),
-  Station_ID = unique(daily_means$Station_ID)
-)
-
-# Join the data frame with all combinations with the calculated data
-days_below_minus_0.2_month_complete <- left_join(all_combinations, days_below_minus_0.2_month, by = c("year", "month", "Station_ID"))
-days_below_minus_0.2_month_complete$total_days[is.na(days_below_minus_0.2_month_complete$total_days)] <- 0
-
-#This is not perfect either, as it creates zeros for years that were not measured. BSM was not measured in 2020.
-
-days_below_minus_0.2_month_complete <- days_below_minus_0.2_month_complete %>%
-   filter(!(Station_ID %in% c("BSM1", "BSM2", "BSM3") & year == 2020))
-days_below_minus_0.2_month_complete
 ```
 
 ```{r}
@@ -456,4 +476,64 @@ final_variables %>%
   rename(consecutive_days_low_gs = consecutive_days_count, total_days_low_gs = total_days)
 
 #write.csv(final_variables, '../data/WT_variables.csv')
+```
+
+```{r}
+final_variables_loc <- final_variables %>%
+mutate(Location = case_when(
+    grepl("^BSM", Station_ID) ~ "BSM",
+    grepl("^VSM", Station_ID) ~ "VSM",
+    grepl("^HM", Station_ID) ~ "HM",
+    TRUE ~ NA_character_  # This handles any cases not matching the specified patterns
+  )) %>%
+  group_by(Location, year) %>%
+  summarise(max_WT_below_cons = max(consecutive_days_count, na.rm=TRUE),
+            WT_mean = mean(gs_mean, na.rm = TRUE),
+            WT_max = max(gs_max, na.rm = TRUE),
+            WT_min = min(gs_min, na.rm = TRUE),
+            total_days_below = max(total_days, na.rm=TRUE))
+final_variables_loc
+```
+
+# Look at precipitation and WT together
+
+```{r}
+climdat_season <- readr::read_delim('../data/climdat_season.csv',
+                       delim =  ',',
+                      col_names = TRUE)
+climdat_long <- readr::read_delim('../data/climdat_long.csv',
+                                  delim = ',',
+                                  col_names = TRUE)
+
+#rename columns in climdat_season
+climdat_season <- climdat_season %>%
+  rename(clim_station = Name, Date = Time)
+
+#Create column for the weather station in the daily_means dataset
+daily_means <- daily_means %>%
+  mutate(clim_station = case_when(Location== 'VSM' ~ 'Vestersetermyra',
+                         Location=='HM' ~ 'Hoydalsmoan',
+                         Location == 'BSM' ~ 'Hoydalsmoan',
+                                TRUE ~ NA))
+
+#rename columns in daily_means
+daily_means <- daily_means %>%
+  rename(Date=DateTime)
+
+#join climate and WT
+clim_wt <- daily_means %>%
+  left_join(climdat_season, by=c('clim_station', 'Date'))
+
+clim_wt_combined <- clim_wt %>%
+  group_by(Station_ID, Location, clim_station, Date, jday.x, month_name.x, year, Year, month, Month) %>%
+  summarize(
+    WT_daily_mean = mean(daily_mean, na.rm = TRUE),
+    WT_daily_max = mean(daily_max, na.rm = TRUE),
+    WT_daily_min = mean(daily_min, na.rm = TRUE),
+    max_temp = first(Max_temp),  # Adjust this function based on your needs
+    mean_temp = first(Mean_temp),
+    min_temp = first(Min_temp),
+    prec = last(Precipitation))
+
+rm(clim_wt)
 ```

@@ -21,6 +21,8 @@ library(sjPlot)
 library(insight)
 rstan_options(auto_write = TRUE) 
 options(mc.cores = parallel::detectCores()) #To Make Stan run faster?
+library(ggridges)
+library(ggrepel)
 ```
 
 # Upload data
@@ -46,9 +48,7 @@ reveg_var <- reveg_var %>%
   mutate_at(c('year', 'month', 'Location', 'Sublocation', 'Block', 'Treatment_ID', 'Treatment', 'Name', 'Station_ID'), as.factor) %>%
   mutate_at(c('Pb', 'Al', 'B', 'Zn', 'Cu', 'Mn', 'Fe', 'P'), as.numeric) %>%
   select('Date','year','month', 'Name','Location','Sublocation', 'Block', 'Treatment', 'Treatment_ID', 'Station_ID', everything()) %>%
-  rename(WT_consecutive_days_below = consecutive_days_count, WT_total_days_below=total_days, WT_mean=gs_mean, WT_max=gs_max, WT_min=gs_min) %>%
-  rename(NO3_N = 'NO3-N',NH4_N = 'NH4-N')
-  
+  rename(WT_consecutive_days_below = consecutive_days_count, WT_total_days_below=total_days, WT_mean=gs_mean, WT_max=gs_max, WT_min=gs_min)
 ```
 
 # Creating new dataset for year 3 only
@@ -154,8 +154,7 @@ H2.Sph.beta <- brm(
   iter = 4000,
   warmup = 1000,
   thin = 3,
-  control = list(adapt_delta = 0.99, max_treedepth = 15),
-  init = init_values
+  control = list(adapt_delta = 0.99, max_treedepth = 15)
 )
 
 #saveRDS(H2.Sph.beta, 'RDS-files/H2.Sph.beta.RDS')
@@ -164,14 +163,14 @@ H2.Sph.beta <- brm(
 
 ```{r}
 #Generate base model
-H3.Sph.beta <- brm(Sphagnum_beta/100 ~ WT_total_days_below_sum + WT_consecutive_days_below_max + WT_mean + (1 | Location/Sublocation),
-                   data=H1.Sph,
-                 Beta(link = "logit", link_phi = "log"),
-                chains = 4, # nb of chains
-                 iter = 4000, # nb of iterations, including burnin
-                 warmup = 1000, # burnin
-                 thin = 3,
-                control = list(adapt_delta = 0.99, max_treedepth = 15))
+#H3.Sph.beta <- brm(Sphagnum_beta/100 ~ WT_total_days_below_sum + WT_consecutive_days_below_max + WT_mean + (1 | Location/Sublocation),
+ #                  data=H1.Sph,
+  #               Beta(link = "logit", link_phi = "log"),
+   #             chains = 4, # nb of chains
+    #             iter = 4000, # nb of iterations, including burnin
+     #            warmup = 1000, # burnin
+      #           thin = 3,
+       #         control = list(adapt_delta = 0.99, max_treedepth = 15))
 
 #saveRDS(H3.Sph.beta, 'RDS-files/H3.Sph.beta.RDS')
 readRDS(H3.Sph.beta, 'RDS-files/H3.Sph.beta.RDS')
@@ -220,9 +219,48 @@ loo_compare(loo_H1, loo_H3)
 ```
 
 ```{r}
-pp_check(H1.Sph.beta, ndraws = 100, type = 'dens_overlay')
+# Create the pp_check plot
+ppc_H1 <- pp_check(H1.Sph.beta, ndraws = 100, type = 'dens_overlay')
+
+# Add axis labels
+ppc_H1 <- ppc_H1 + labs(x = "Proportion of Sphagnum cover", y = "Density")
+
+# Save the plot to a file
+ggsave(filename = '../figures/ppc_H1.png', plot = ppc_H1)
 ```
 
 ```{r}
 pp_check(H3.Sph.beta, ndraws = 100, type = 'dens_overlay')
+```
+
+```{r}
+# Extract posterior samples
+posterior_samples <- as.data.frame(H1.Sph.beta)
+
+# List of variables of interest
+variables <- c("b_Treatment", "b_WT_consecutive_days_below_max", 
+               "b_WT_consecutive_days_below_sum", "b_WT_mean")
+
+# Extracting posterior samples for the variables of interest
+selected_columns <- colnames(posterior_samples)[grepl(paste(variables, collapse = "|"), colnames(posterior_samples))]
+
+# Reshape data for ggplot2
+posterior_data <- posterior_samples %>%
+  pivot_longer(cols = all_of(selected_columns), names_to = "Variable", values_to = "Value")
+
+# Define x-axis limits to exclude extreme tails
+x_limits <- c(-40, 20)  # Adjust these values based on your data
+
+# Create the ridge plot
+ridge_plot <- ggplot(posterior_data, aes(x = Value, y = Variable, fill = Variable)) +
+  geom_density_ridges() +
+  labs(x = "Posterior value", y = "Explanatory variable", title = "Posterior distributions of explanatory variables") +
+  theme_ridges() +
+  theme(legend.position = "none") +
+  coord_cartesian(xlim = x_limits)
+
+ridge_plot
+
+# Save the plot
+#ggsave(filename = '../figures/treatment_posterior_distributions.png', plot = ridge_plot)
 ```

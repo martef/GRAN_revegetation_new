@@ -88,12 +88,36 @@ There is some differences between sites. The Sphagnum treatment is clearly not a
 
 ```{r}
 reveg_var%>%
-  group_by(t_year, Treatment) %>%
+  group_by(Location, t_year, Treatment) %>%
   summarise(median=median(Sphagnum), 
             mean=mean(Sphagnum),
             Sph0 = sum(Sphagnum==0),
             Sph0.1= sum(Sphagnum==0.1),
             Sph1 = sum(Sphagnum==1),
+            max=max(Sphagnum), total_N = n()) 
+```
+
+```{r}
+
+se <- function(x) {
+  sd(x) / sqrt(length(x))
+}
+
+reveg_var%>%
+  filter(t_year==3) %>%
+  group_by(Location, Treatment) %>%
+  summarise(median=median(Sphagnum), 
+            mean=mean(Sphagnum),
+            se = se(Sphagnum),
+            max=max(Sphagnum), total_N = n()) 
+```
+
+```{r}
+reveg_var%>%
+  group_by(t_year, Treatment) %>%
+  summarise(median=median(Sphagnum), 
+            mean=mean(Sphagnum),
+            se = se(Sphagnum),
             max=max(Sphagnum), total_N = n()) 
 ```
 
