@@ -103,7 +103,7 @@ reveg <- reveg %>%
 Uploading and editing dataset for water level variables:
 
 ```{r, output=FALSE, warning=FALSE}
-wtvar <- readr::read_delim('../data/WT_variables.csv', 
+wtvar <- readr::read_delim('../data/WT_variables2.csv', 
                                   delim = ',',
                                   col_names = TRUE)
 
@@ -285,8 +285,12 @@ reveg_var <- reveg_var %>%
 ```
 
 ```{r}
+#Create column for Station_ID
 reveg_var <- reveg_var %>%
-  filter(!is.na(Treatment))
+  mutate(Station_ID = paste(Location, Sublocation, sep = "-")) %>%
+   relocate(Name, Station_ID, .after = month) %>%
+  select(!c(Registered_by)) #Removing this column, as it creates problems in the comma-separated csv-file (it uses commas within the column values)
+
 ```
 
 ```{r}

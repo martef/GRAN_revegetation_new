@@ -1,0 +1,475 @@
+---
+title: "Updates with corrected WT at BSM"
+author: "MarteF"
+format: html
+editor: visual
+---
+
+## Packages needed
+
+```{r}
+library(tidyverse)
+library(readr)
+library(lubridate)
+library(scales)
+library(gridExtra)
+library(timetk)
+```
+
+# WT adjustments and rerunning of code to create WT variables
+
+```{r}
+wt_all <- readr::read_delim('../data/wt_all.csv', 
+                                  delim = ',',
+                                  col_names = TRUE)
+
+#Filter data for growth season
+wt_season <- wt_all %>%     
+  filter((year >= 2020 & year < 2023) & (month >= 5 & month <= 9) | (year == 2023) & (month >= 5 & month<9))
+
+#Create julian date column
+wt_season$jday <- yday(wt_season$Date)
+wt_season$month_name <- format(wt_season$Date,"%B")
+wt_season$month_name <- factor(wt_season$month_name, levels = month.name)
+
+#Filter out the malfunctioning stations
+wt_season <- wt_season %>%
+  filter(!(year %in%  c('2022', '2023') & Station_ID=='BSM1')) %>%
+  filter(Station_ID!='HM2')
+```
+
+## Adjust the values of BSM1, BSM2, BSM3
+
+```{r}
+#Checking max level
+wt_season %>%
+  filter(Station_ID=='BSM1') %>%
+        summarise(max=max(LEVEL))
+
+# I don't have realtime data for this station, as it was malfunctioning in 2022 (when I did realtime measurements)
+
+# Filter data for the desired Station_IDs
+adjusted_data_BSM1 <- wt_season%>%
+  filter(Station_ID %in% c("BSM1")) %>%
+  group_by(Station_ID) %>%
+  mutate(LEVEL = LEVEL - max(LEVEL)) %>%
+  ungroup()
+
+# View the adjusted data
+print(adjusted_data_BSM1)
+```
+
+```{r}
+wt_season %>%
+  filter(Station_ID %in% c('BSM1')) %>%
+  group_by(Station_ID)
+```
+
+```{r}
+
+#Checking max level
+wt_season %>%
+  filter(Station_ID=='BSM2') %>%
+        summarise(max=max(LEVEL))
+
+#Checking levels at 22/6-22, when I have realtime data
+wt_season %>%
+  filter(Station_ID=='BSM2', Date == as.Date("2022-06-22"))
+
+# Filter data for the desired Station_IDs         
+adjusted_data_BSM2 <- wt_season%>%
+  filter(Station_ID %in% c("BSM2")) %>%
+  group_by(Station_ID) %>%
+  mutate(LEVEL = LEVEL - max(LEVEL)) %>%
+  ungroup()
+
+# View the adjusted data
+print(adjusted_data_BSM2)
+```
+
+```{r}
+wt_season %>%
+  filter(Station_ID %in% c('BSM2')) %>%
+  group_by(Station_ID)
+```
+
+```{r}
+#Checking max level
+wt_season %>%
+  filter(Station_ID=='BSM3') %>%
+        summarise(max=max(LEVEL))
+
+#Checking levels at 22/6-22, when I have realtime data
+wt_season %>%
+  filter(Station_ID=='BSM3', Date == as.Date("2022-06-22"))
+
+# Filter data for the desired Station_IDs         
+adjusted_data_BSM3 <- wt_season%>%
+  filter(Station_ID %in% c("BSM3")) %>%
+  group_by(Station_ID) %>%
+  mutate(LEVEL = LEVEL - max(LEVEL)) %>%
+  ungroup()
+
+# View the adjusted data
+print(adjusted_data_BSM3)
+```
+
+```{r}
+wt_season %>%
+  filter(Station_ID %in% c('BSM3')) %>%
+  group_by(Station_ID)
+```
+
+```{r}
+# Combine adjusted data with the rest of the dataset
+combined_data <- wt_season %>%
+  filter(!Station_ID %in% c("BSM1", "BSM2", "BSM3")) %>%
+  bind_rows(adjusted_data_BSM1, adjusted_data_BSM2, adjusted_data_BSM3)
+```
+
+## Create new variables
+
+```{r}
+#Daily means of WT values
+daily_means <- combined_data %>%
+  mutate(Location = case_when(
+    grepl("^BSM", Station_ID) ~ "BSM",
+    grepl("^VSM", Station_ID) ~ "VSM",
+    grepl("^HM", Station_ID) ~ "HM",
+    TRUE ~ NA_character_  # This handles any cases not matching the specified pattern
+  )) %>%
+  group_by(Station_ID, Location, jday, month_name, year) %>%
+ summarise_by_time(.date_var=DateTime,
+                    .by="day",
+                    daily_mean = mean(LEVEL), daily_max = max(LEVEL), daily_min= min(LEVEL))
+
+daily_means
+```
+
+```{r}
+#Summary per growth season
+gs <-combined_data%>%
+  group_by(Station_ID, year)%>%
+  summarise_by_time(.date_var=DateTime,
+                    .by="year", gs_mean = mean(LEVEL), gs_max = max(LEVEL), gs_min = min(LEVEL) )
+gs
+```
+
+```{r}
+# Create variable for days below -20cm WT within growth season
+daily_means <- daily_means %>%
+  mutate(year=as.factor(year(DateTime))) %>%
+  mutate(month=as.factor(month(DateTime)))
+
+total_days_below_minus_0.2 <- daily_means %>% 
+  filter(daily_mean < -0.2) %>% 
+  group_by(Station_ID, year) %>% 
+  summarise(total_days = n_distinct(DateTime))%>%
+  ungroup()%>%
+ complete(Station_ID, year, fill = list(total_days = 0)) %>%
+ungroup()
+print(total_days_below_minus_0.2, n = Inf)
+
+# Create a data frame with all combinations of year, month, and Station_ID
+all_combinations <- expand.grid(
+  year = unique(daily_means$year),
+  Station_ID = unique(daily_means$Station_ID)
+)
+
+# Join the data frame with all combinations with the calculated data
+total_days_below_minus_0.2_complete <- left_join(all_combinations, total_days_below_minus_0.2, by = c("year", "Station_ID"))
+total_days_below_minus_0.2_complete$total_days[is.na(total_days_below_minus_0.2_complete$total_days)] <- 0
+
+#This is not perfect, as it creates zeros for years that were not measured. BSM was not measured in 2020.
+
+total_days_below_minus_0.2_complete <- total_days_below_minus_0.2_complete %>%
+   filter(!(Station_ID %in% c("BSM1", "BSM2", "BSM3") & year == '2020'))
+
+total_days_below_minus_0.2_complete
+```
+
+```{r}
+#Create variable for max no of consecutive days wit WT <-0.2 within growth season
+df <- daily_means %>%
+  mutate(consecutive_days = daily_mean < -0.2) %>%
+  group_by(Station_ID, year) %>%
+  mutate(consecutive_days = cumsum(consecutive_days) - cummax((!consecutive_days) * cumsum(consecutive_days))) %>%
+  ungroup()
+
+result <- df %>%
+  group_by(Station_ID, year) %>%
+  summarise(consecutive_days_count = max(consecutive_days)) %>%
+  ungroup()
+
+result
+```
+
+```{r}
+#Combine variables for growth season
+gs <- gs %>% 
+  select(-c('DateTime')) %>%
+  mutate(year=as.factor(year))
+
+
+final_variables <- result %>%
+  full_join(gs, by=c('Station_ID','year'))
+final_variables <- final_variables %>%
+  full_join(total_days_below_minus_0.2_complete, by=c('Station_ID', 'year'))
+
+final_variables %>%
+  rename(consecutive_days_low_gs = consecutive_days_count, total_days_low_gs = total_days)
+
+#write.csv(final_variables, '../data/WT_variables2.csv')
+final_variables
+```
+
+```{r}
+final_variables_loc <- final_variables %>%
+mutate(Location = case_when(
+    grepl("^BSM", Station_ID) ~ "BSM",
+    grepl("^VSM", Station_ID) ~ "VSM",
+    grepl("^HM", Station_ID) ~ "HM",
+    TRUE ~ NA_character_  # This handles any cases not matching the specified patterns
+  )) %>%
+  group_by(Location, year) %>%
+  summarise(max_WT_below_cons = max(consecutive_days_count, na.rm=TRUE),
+            WT_mean = mean(gs_mean, na.rm = TRUE),
+            WT_max = max(gs_max, na.rm = TRUE),
+            WT_min = min(gs_min, na.rm = TRUE),
+            total_days_below = max(total_days, na.rm=TRUE))
+final_variables_loc
+```
+
+```{r}
+gs_loc <- wt_season %>%
+  mutate(Location = case_when(
+    grepl("^BSM", Station_ID) ~ "BSM",
+    grepl("^VSM", Station_ID) ~ "VSM",
+    grepl("^HM", Station_ID) ~ "HM",
+    TRUE ~ NA_character_ )) %>% # This handles any cases not matching the specified patterns 
+  group_by(Location, year)%>%
+  summarise_by_time(.date_var=DateTime, .by="year", gs_mean = mean(LEVEL), gs_max = max(LEVEL), gs_min = min(LEVEL))
+  
+gs_loc
+```
+
+## Combine WT with precipitation
+
+```{r}
+climdat_season <- readr::read_delim('../data/climdat_season.csv',
+                       delim =  ',',
+                      col_names = TRUE)
+
+#rename columns in climdat_season
+climdat_season <- climdat_season %>%
+  rename(clim_station = Name, Date = Time) %>%
+  mutate(across(c('year', 'month'), as.factor))
+
+#Create column for the weather station in the daily_means dataset
+daily_means <- daily_means %>%
+  mutate(clim_station = case_when(Location== 'VSM' ~ 'Vestersetermyra',
+                         Location=='HM' ~ 'Hoydalsmoan',
+                         Location == 'BSM' ~ 'Hoydalsmoan',
+                                TRUE ~ NA))
+
+#rename columns in daily_means
+daily_means <- daily_means %>%
+  rename(Date=DateTime)
+
+#join climate and WT
+clim_wt <- daily_means %>%
+  left_join(climdat_season, by=c('clim_station', 'Date', 'year', 'month', 'jday', 'month_name'))
+
+clim_wt_combined <- clim_wt %>%
+  group_by(Station_ID, Location, clim_station, Date, jday, month_name, year, Year, month, Month) %>%
+  summarize(
+    WT_daily_mean = mean(daily_mean, na.rm = TRUE),
+    WT_daily_max = mean(daily_max, na.rm = TRUE),
+    WT_daily_min = mean(daily_min, na.rm = TRUE),
+    max_temp = first(Max_temp),  # Adjust this function based on your needs
+    mean_temp = first(Mean_temp),
+    min_temp = first(Min_temp),
+    prec = last(Precipitation))
+
+rm(clim_wt)
+
+#write.csv(clim_wt_combined, file = '../data/clim_wt_combined2.csv')
+clim_wt_combined
+```
+
+```{r}
+plot_BSM2 <- clim_wt_combined %>%
+  filter(Station_ID == "BSM2", Date >= as.Date("2021-05-15") & Date <= as.Date("2021-09-15")) %>%
+  ggplot(aes(x = Date)) +
+  # WT_daily_mean as blue bars going downward from 0
+  geom_line(aes(y = WT_daily_mean), color= "darkblue", size= 1) +
+  # prec as red bars going upward from 0
+  geom_bar(aes(y = prec / 30 * 0.50), stat = "identity", fill = "lightblue", color= "darkblue", alpha = 0.7) +
+  scale_y_continuous(
+    name = "WT_daily_mean",
+    limits = c(-0.50, 0.50),
+    sec.axis = sec_axis(~ . * 60, name = "prec", breaks = seq(-30, 30, 10))
+  ) +
+  labs(title = "WT_daily_mean and Precipitation per Day (15.06.2021 to 15.08.2021) for Station_ID BSM2",
+       x = "Date", y = "WT_daily_mean") +
+  theme_minimal() +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1))
+
+plot_BSM2
+
+```
+
+```{r}
+plot_BSM1 <- clim_wt_combined %>%
+  filter(Station_ID == "BSM1", Date >= as.Date("2021-05-15") & Date <= as.Date("2021-09-15")) %>%
+  ggplot(aes(x = Date)) +
+  # WT_daily_mean as blue bars going downward from 0
+  geom_line(aes(y = WT_daily_mean), color= "darkblue", size= 1) +
+  # prec as red bars going upward from 0
+  geom_bar(aes(y = prec / 30 * 0.50), stat = "identity", fill = "lightblue", color= "darkblue", alpha = 0.7) +
+  scale_y_continuous(
+    name = "WT_daily_mean",
+    limits = c(-0.50, 0.50),
+    sec.axis = sec_axis(~ . * 60, name = "prec", breaks = seq(-30, 30, 10))
+  ) +
+  labs(title = "WT_daily_mean and Precipitation per Day (15.06.2021 to 15.08.2021) for Station_ID BSM1",
+       x = "Date", y = "WT_daily_mean") +
+  theme_minimal() +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1))
+
+plot_BSM1
+```
+
+```{r}
+plot_BSM3 <- clim_wt_combined %>%
+  filter(Station_ID == "BSM3", Date >= as.Date("2021-05-15") & Date <= as.Date("2021-09-15")) %>%
+  ggplot(aes(x = Date)) +
+  # WT_daily_mean as blue bars going downward from 0
+  geom_line(aes(y = WT_daily_mean), color= "darkblue", size= 1) +
+  # prec as red bars going upward from 0
+  geom_bar(aes(y = prec / 30 * 0.50), stat = "identity", fill = "lightblue", color= "darkblue", alpha = 0.7) +
+  scale_y_continuous(
+    name = "Mean WT (m)",
+    limits = c(-0.60, 0.60),
+       breaks = seq(-0.60, 0.60, by = 0.15),
+    sec.axis = sec_axis(~ . * 60, name = "Precipitation (mm)", breaks = seq(-30, 30, 10))
+  ) +
+  labs(title = "Mean WT and precipitation per day growth season 2021 for BSM3",
+       x = "Date", y = "Mean WT") +
+  theme_minimal() +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1))
+
+plot_BSM3
+```
+
+## Reprint all WT and prec figures
+
+```{r}
+
+# Ensure your data frame is named clim_wt_combined
+# Filter the data for the desired time period
+filtered_data <- clim_wt_combined %>%
+  filter(Date >= as.Date("2020-05-01") & Date <= as.Date("2020-09-30"))
+
+# Get unique Station_IDs
+unique_stations <- unique(filtered_data$Station_ID)
+
+# Create a separate figure for each Station_ID
+for (station in unique_stations) {
+  station_data <- filtered_data %>%
+    filter(Station_ID == station)
+  
+  station_comb_plot <- ggplot(station_data, aes(x = Date)) +
+    # WT_daily_mean as blue line underneath surface at 0m
+    geom_line(aes(y = WT_daily_mean), color= "darkblue", size= 1) +
+    # prec as bars going upward from 0
+    geom_bar(aes(y = prec / 30 * 0.60), stat = "identity", fill = "lightblue", color = "darkblue", alpha = 0.7) +
+    scale_y_continuous(
+      name = "Mean WT (m)",
+      limits = c(-0.60, 0.60),
+       breaks = seq(-0.60, 0.60, by = 0.15),
+      sec.axis = sec_axis(~ . * 60, name = "Precipitation (mm)", breaks = seq(-30, 30, 10))
+    ) +
+    labs(title = paste("Mean WT and precipitation per day during growth season 2020 for", station),
+         x = "Date", y = "Mean WT") +
+    theme_minimal() +
+    theme(axis.text.x = element_text(angle = 45, hjust = 1))
+  
+  # Save the plot as a PNG file
+  ggsave(filename = paste0("../figures/WT_prec_2020", station, ".png"), plot = station_comb_plot, width = 10, height = 6)
+  
+  print(station_comb_plot)
+}
+```
+
+## Combine WT variables with reveg
+
+```{r}
+wtvar <- final_variables 
+wtvar <- wtvar %>%  
+     mutate(Name=case_when(Station_ID=='BSM1'~ 'Hoydalsmoan', 
+                           Station_ID=='BSM2'~'Hoydalsmoan',
+                           Station_ID=='BSM3'~'Hoydalsmoan', 
+                           Station_ID=='HM1'~'Hoydalsmoan', 
+                           Station_ID=='HM2'~'Hoydalsmoan', 
+                           Station_ID=='HM3'~'Hoydalsmoan', 
+                           Station_ID=='VSM1'~'Vestersetermyra', 
+                           Station_ID=='VSM2'~'Vestersetermyra', 
+                           TRUE ~ NA)) %>% 
+  mutate_at(c('year', 'Station_ID'), as.factor) 
+
+#Created a column for weather station Name in the water table dataset
+
+
+wtvar <- wtvar%>% 
+   relocate(Name) 
+
+# The total days with water table < -0.2m (total_days) are set to zero for those stations that didn't have any data (BSM1 in 2022, 2023, and HM2 in 2021, 2022, 2023). I need to change these to NAs 
+
+wtvar <- wtvar %>% 
+  mutate(total_days = case_when( 
+         is.na(consecutive_days_count) ~ NA_real_, 
+              TRUE ~ total_days 
+            )) 
+ 
+#Create similar columns as in reveg dataset 
+wtvar <- wtvar %>% 
+     separate('Station_ID', into = c('Location', 'Sublocation'), sep = "(?<=\\D)(?=\\d)|(?<=\\d)(?=\\D)", remove = FALSE)
+
+```
+
+```{r}
+reveg_var <- readr::read_delim('../data/reveg_var.csv', 
+                                  delim = ',',
+                                  col_names = TRUE)
+
+reveg_wt <- reveg_var %>%
+  select(c(Date:Other, Change_Year:Sphagnum_beta)) %>%
+  mutate_at(c('Location','Sublocation', 'Treatment_ID', 'Treatment', 'year', 'Block' ), as.factor)
+
+#Join the revegetation dataset with the variable datasets
+
+reveg_wt <- wtvar %>%
+   left_join(reveg_wt, by=c('Location', 'Sublocation', 'year'))
+
+reveg_wt <- reveg_wt %>%
+   mutate_at(c('Location','Sublocation', 'Treatment_ID', 'Treatment'), as.factor)
+
+
+```
+
+```{r}
+reveg_var %>%
+  group_by(Station_ID, t_year) %>%
+  filter(Treatment=='S') %>%
+  summarise(mean = mean(Sphagnum, na.rm=TRUE),
+            se = sd(Sphagnum, na.rm= TRUE/ sqrt(n())))
+```
+
+```{r}
+reveg_var %>%
+  group_by(Location, t_year, Treatment) %>%
+  filter(Treatment==(c('S', 'R'))) %>%
+  summarise(mean = mean(Sphagnum, na.rm=TRUE),
+            se = sd(Sphagnum, na.rm= TRUE/ sqrt(n())))
+```

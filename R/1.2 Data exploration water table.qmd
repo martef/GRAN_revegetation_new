@@ -21,7 +21,7 @@ library(timetk)
 ## Uploading data
 
 ```{r}
-wt_all <- readr::read_delim('C:/Users/martef/DokumenterIntern/GitHub/GRAN_revegetation_new/data/wt_all.csv', 
+wt_all <- readr::read_delim('../data/wt_all.csv', 
                                   delim = ',',
                                   col_names = TRUE)
 ```
@@ -299,7 +299,7 @@ daily_means <- wt_season %>%
     grepl("^HM", Station_ID) ~ "HM",
     TRUE ~ NA_character_  # This handles any cases not matching the specified pattern
   )) %>%
-  group_by(Station_ID, Location, jday, month_name) %>%
+  group_by(Station_ID, Location, jday, month_name, year) %>%
  summarise_by_time(.date_var=DateTime,
                     .by="day",
                     daily_mean = mean(LEVEL), daily_max = max(LEVEL), daily_min= min(LEVEL))
@@ -380,9 +380,14 @@ By location
 
 ```{r}
 gs_loc <- wt_season %>%
+  mutate(Location = case_when(
+    grepl("^BSM", Station_ID) ~ "BSM",
+    grepl("^VSM", Station_ID) ~ "VSM",
+    grepl("^HM", Station_ID) ~ "HM",
+    TRUE ~ NA_character_ )) %>% # This handles any cases not matching the specified patterns 
   group_by(Location, year)%>%
-  summarise_by_time(.date_var=DateTime,
-                    .by="year", gs_mean = mean(LEVEL), gs_max = max(LEVEL), gs_min = min(LEVEL) )
+  summarise_by_time(.date_var=DateTime, .by="year", gs_mean = mean(LEVEL), gs_max = max(LEVEL), gs_min = min(LEVEL))
+  
 gs_loc
 ```
 
@@ -420,6 +425,37 @@ total_days_below_minus_0.2_complete <- total_days_below_minus_0.2_complete %>%
 total_days_below_minus_0.2_complete
 ```
 
+Days with low WT per month
+
+```{r}
+total_days_below_minus_0.2_month <- daily_means %>% 
+  filter(daily_mean < -0.2) %>% 
+  group_by(Station_ID, year,month) %>% 
+  summarise(total_days = n_distinct(DateTime))%>%
+  ungroup()%>%
+ complete(Station_ID, year, month, fill = list(total_days = 0)) %>%
+ungroup()
+print(total_days_below_minus_0.2_month, n = Inf)
+
+# Create a data frame with all combinations of year, month, and Station_ID
+all_combinations <- expand.grid(
+  year = unique(daily_means$year),
+  month = unique(daily_means$month),
+  Station_ID = unique(daily_means$Station_ID)
+)
+
+# Join the data frame with all combinations with the calculated data
+total_days_below_minus_0.2_complete_month <- left_join(all_combinations, total_days_below_minus_0.2_month, by = c("year", "month", "Station_ID"))
+total_days_below_minus_0.2_complete_month$total_days[is.na(total_days_below_minus_0.2_complete_month$total_days)] <- 0
+
+#This is not perfect, as it creates zeros for years that were not measured. BSM was not measured in 2020.
+
+total_days_below_minus_0.2_complete_month <- total_days_below_minus_0.2_complete_month %>%
+   filter(!(Station_ID %in% c("BSM1", "BSM2", "BSM3") & year == '2020'))
+
+total_days_below_minus_0.2_complete_month
+```
+
 ```{r}
 ggplot(total_days_below_minus_0.2_complete, aes(x = Station_ID, y = total_days, fill = Station_ID)) +
   geom_bar(position="dodge", stat = "identity") +
@@ -430,7 +466,7 @@ ggplot(total_days_below_minus_0.2_complete, aes(x = Station_ID, y = total_days, 
 ```
 
 ```{r}
-ggplot(days_below_minus_0.2_month_complete, aes(x = month, y = total_days, fill = Station_ID)) +
+ggplot(total_days_below_minus_0.2_complete_month, aes(x = month, y = total_days, fill = Station_ID)) +
   geom_col(position='dodge') +
   labs(x = "Month", y = "Total Days", fill='Station') +
   theme_minimal()+
@@ -501,13 +537,11 @@ final_variables_loc
 climdat_season <- readr::read_delim('../data/climdat_season.csv',
                        delim =  ',',
                       col_names = TRUE)
-climdat_long <- readr::read_delim('../data/climdat_long.csv',
-                                  delim = ',',
-                                  col_names = TRUE)
 
 #rename columns in climdat_season
 climdat_season <- climdat_season %>%
-  rename(clim_station = Name, Date = Time)
+  rename(clim_station = Name, Date = Time) %>%
+  mutate(across(c('year', 'month'), as.factor))
 
 #Create column for the weather station in the daily_means dataset
 daily_means <- daily_means %>%
@@ -522,10 +556,10 @@ daily_means <- daily_means %>%
 
 #join climate and WT
 clim_wt <- daily_means %>%
-  left_join(climdat_season, by=c('clim_station', 'Date'))
+  left_join(climdat_season, by=c('clim_station', 'Date', 'year', 'month', 'jday', 'month_name'))
 
 clim_wt_combined <- clim_wt %>%
-  group_by(Station_ID, Location, clim_station, Date, jday.x, month_name.x, year, Year, month, Month) %>%
+  group_by(Station_ID, Location, clim_station, Date, jday, month_name, year, Year, month, Month) %>%
   summarize(
     WT_daily_mean = mean(daily_mean, na.rm = TRUE),
     WT_daily_max = mean(daily_max, na.rm = TRUE),
@@ -536,4 +570,210 @@ clim_wt_combined <- clim_wt %>%
     prec = last(Precipitation))
 
 rm(clim_wt)
+
+write.csv(clim_wt_combined, file = '../data/clim_wt_combined.csv')
+clim_wt_combined
 ```
+
+## Figure
+
+Creating a figure with precipitation events and WT at the various stations. How do they react in the days after high precipitation events?
+
+Choose a month as a test period, look at daily values.
+
+```{r}
+climdat_season %>%
+ filter(clim_station=='Hoydalsmoan')%>%
+   filter(Date >= as.Date("2021-06-15") & Date <= as.Date("2021-08-15")) %>%
+    ggplot(aes(x = as.Date(jday, origin = as.Date("2019-01-01")), y = Precipitation)) + scale_x_date(date_labels = "%d") +
+    geom_col(na.rm=TRUE) +
+    labs(title = paste("Precipitation at Hoydalsmoan"),
+         x = "Date",
+         y = "Precipitation in mm") +
+    theme_minimal() +
+    facet_grid(year~., scales = "free_y") + 
+    theme(legend.position = "bottom")
+```
+
+Testing for Station BSM1
+
+```{r}
+# Filter the data for the desired time period and Station_ID
+filtered_data <- clim_wt_combined %>%
+  filter(Station_ID == "BSM1", Date >= as.Date("2021-05-15") & Date <= as.Date("2021-09-15"))
+
+# Create the plot
+ggplot(filtered_data, aes(x = Date)) +
+  # WT_daily_mean as blue bars going downward from 0
+  geom_line(aes(y = WT_daily_mean), color= "darkblue", size= 1) +
+  # prec as red bars going upward from 0
+  geom_bar(aes(y = prec / 30 * 0.50), stat = "identity", fill = "lightblue", color= "darkblue", alpha = 0.7) +
+  scale_y_continuous(
+    name = "WT_daily_mean",
+    limits = c(-0.50, 0.50),
+    sec.axis = sec_axis(~ . * 60, name = "prec", breaks = seq(-30, 30, 10))
+  ) +
+  labs(title = "WT_daily_mean and Precipitation per Day (15.06.2021 to 15.08.2021) for Station_ID BSM1",
+       x = "Date", y = "WT_daily_mean") +
+  theme_minimal() +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1))
+
+
+```
+
+Let's make plots for all stations:
+
+```{r}
+
+# Ensure your data frame is named clim_wt_combined
+# Filter the data for the desired time period
+filtered_data <- clim_wt_combined %>%
+  filter(Date >= as.Date("2021-05-01") & Date <= as.Date("2021-09-30"))
+
+# Get unique Station_IDs
+unique_stations <- unique(filtered_data$Station_ID)
+
+# Create a separate figure for each Station_ID
+for (station in unique_stations) {
+  station_data <- filtered_data %>%
+    filter(Station_ID == station)
+  
+  station_comb_plot <- ggplot(station_data, aes(x = Date)) +
+    # WT_daily_mean as blue line underneath surface at 0m
+    geom_line(aes(y = WT_daily_mean), color= "darkblue", size= 1) +
+    # prec as bars going upward from 0
+    geom_bar(aes(y = prec / 30 * 0.60), stat = "identity", fill = "lightblue", color = "darkblue", alpha = 0.7) +
+    scale_y_continuous(
+      name = "Mean WT",
+      limits = c(-0.60, 0.60),
+       breaks = seq(-0.60, 0.60, by = 0.15),
+      sec.axis = sec_axis(~ . * 60, name = "Precipitation", breaks = seq(-30, 30, 10))
+    ) +
+    labs(title = paste("Mean WT and precipitation per day growth season 2021 for", station),
+         x = "Date", y = "Mean WT") +
+    theme_minimal() +
+    theme(axis.text.x = element_text(angle = 45, hjust = 1))
+  
+  # Save the plot as a PNG file
+  ggsave(filename = paste0("../figures/WT_prec_2021", station, ".png"), plot = station_comb_plot, width = 10, height = 6)
+  
+  print(station_comb_plot)
+}
+
+```
+
+```{r}
+
+# Ensure your data frame is named clim_wt_combined
+# Filter the data for the desired time period
+filtered_data <- clim_wt_combined %>%
+  filter(Date >= as.Date("2020-05-01") & Date <= as.Date("2020-09-30"))
+
+# Get unique Station_IDs
+unique_stations <- unique(filtered_data$Station_ID)
+
+# Create a separate figure for each Station_ID
+for (station in unique_stations) {
+  station_data <- filtered_data %>%
+    filter(Station_ID == station)
+  
+  station_comb_plot <- ggplot(station_data, aes(x = Date)) +
+    # WT_daily_mean as blue line underneath surface at 0m
+    geom_line(aes(y = WT_daily_mean), color= "darkblue", size= 1) +
+    # prec as bars going upward from 0
+    geom_bar(aes(y = prec / 30 * 0.60), stat = "identity", fill = "lightblue", color = "darkblue", alpha = 0.7) +
+    scale_y_continuous(
+      name = "Mean WT",
+      limits = c(-0.60, 0.60),
+       breaks = seq(-0.60, 0.60, by = 0.15),
+      sec.axis = sec_axis(~ . * 60, name = "Precipitation", breaks = seq(-30, 30, 10))
+    ) +
+    labs(title = paste("Mean WT and precipitation per day growth season 2020 for", station),
+         x = "Date", y = "Mean WT") +
+    theme_minimal() +
+    theme(axis.text.x = element_text(angle = 45, hjust = 1))
+  
+  # Save the plot as a PNG file
+  ggsave(filename = paste0("../figures/WT_prec_2020", station, ".png"), plot = station_comb_plot, width = 10, height = 6)
+  
+  print(station_comb_plot)
+}
+```
+
+```{r}
+
+# Ensure your data frame is named clim_wt_combined
+# Filter the data for the desired time period
+filtered_data <- clim_wt_combined %>%
+  filter(Date >= as.Date("2022-05-01") & Date <= as.Date("2022-09-30"))
+
+# Get unique Station_IDs
+unique_stations <- unique(filtered_data$Station_ID)
+
+# Create a separate figure for each Station_ID
+for (station in unique_stations) {
+  station_data <- filtered_data %>%
+    filter(Station_ID == station)
+  
+  station_comb_plot <- ggplot(station_data, aes(x = Date)) +
+    # WT_daily_mean as blue line underneath surface at 0m
+    geom_line(aes(y = WT_daily_mean), color= "darkblue", size= 1) +
+    # prec as bars going upward from 0
+    geom_bar(aes(y = prec / 30 * 0.60), stat = "identity", fill = "lightblue", color = "darkblue", alpha = 0.7) +
+    scale_y_continuous(
+      name = "Mean WT",
+      limits = c(-0.60, 0.60),
+       breaks = seq(-0.60, 0.60, by = 0.15),
+      sec.axis = sec_axis(~ . * 60, name = "Precipitation", breaks = seq(-30, 30, 10))
+    ) +
+    labs(title = paste("Mean WT and precipitation per day growth season 2022 for", station),
+         x = "Date", y = "Mean WT") +
+    theme_minimal() +
+    theme(axis.text.x = element_text(angle = 45, hjust = 1))
+  
+  # Save the plot as a PNG file
+  ggsave(filename = paste0("../figures/WT_prec_2022", station, ".png"), plot = station_comb_plot, width = 10, height = 6)
+  
+  print(station_comb_plot)
+}
+```
+
+```{r}
+
+# Ensure your data frame is named clim_wt_combined
+# Filter the data for the desired time period
+filtered_data <- clim_wt_combined %>%
+  filter(Date >= as.Date("2023-05-01") & Date <= as.Date("2023-09-30"))
+
+# Get unique Station_IDs
+unique_stations <- unique(filtered_data$Station_ID)
+
+# Create a separate figure for each Station_ID
+for (station in unique_stations) {
+  station_data <- filtered_data %>%
+    filter(Station_ID == station)
+  
+  station_comb_plot <- ggplot(station_data, aes(x = Date)) +
+    # WT_daily_mean as blue line underneath surface at 0m
+    geom_line(aes(y = WT_daily_mean), color= "darkblue", size= 1) +
+    # prec as bars going upward from 0
+    geom_bar(aes(y = prec / 30 * 0.60), stat = "identity", fill = "lightblue", color = "darkblue", alpha = 0.7) +
+    scale_y_continuous(
+      name = "Mean WT",
+      limits = c(-0.60, 0.60),
+       breaks = seq(-0.60, 0.60, by = 0.15),
+      sec.axis = sec_axis(~ . * 60, name = "Precipitation", breaks = seq(-30, 30, 10))
+    ) +
+    labs(title = paste("Mean WT and precipitation per day growth season 2023 for", station),
+         x = "Date", y = "Mean WT") +
+    theme_minimal() +
+    theme(axis.text.x = element_text(angle = 45, hjust = 1))
+  
+  # Save the plot as a PNG file
+  ggsave(filename = paste0("../figures/WT_prec_2023", station, ".png"), plot = station_comb_plot, width = 10, height = 6)
+  
+  print(station_comb_plot)
+}
+```
+
+I'm now very sure the WT at BSM is not correctly depth corrected. The WT seems to be saturated at about -0.10cm and not responding to more precipitation input. This would rather make more sense if the WT was approx. 0cm.

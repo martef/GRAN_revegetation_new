@@ -27,8 +27,7 @@ reveg_var <- reveg_var %>%
   select( -1) %>%
   mutate_at(c('year', 'month', 'Location', 'Sublocation', 'Block', 'Treatment_ID', 'Treatment', 'Name', 'Station_ID'), as.factor) %>%
   select('Date','year','month', 'Name','Location','Sublocation', 'Block', 'Treatment', 'Treatment_ID', 'Station_ID', everything()) %>%
-  rename(WT_consecutive_days_below = consecutive_days_count, WT_total_days_below=total_days, WT_mean=gs_mean, WT_max=gs_max, WT_min=gs_min) %>%
-  rename(NO3_N = 'NO3-N',NH4_N = 'NH4-N')
+  rename(WT_consecutive_days_below = consecutive_days_count, WT_total_days_below=total_days, WT_mean=gs_mean, WT_max=gs_max, WT_min=gs_min)
 ```
 
 ## Visual inspection of data
