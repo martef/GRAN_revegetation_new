@@ -8,12 +8,26 @@ editor: visual
 ## Packages needed
 
 ```{r}
-library(tidyverse)
 library(readr)
 library(lubridate)
 library(scales)
 library(gridExtra)
 library(timetk)
+library(brms) # bayesian approach to glmm, but with easier steps 
+library(posterior) # tools for working with posterior and prior distributions 
+library(lme4) # fit GLMM in frequentist framework 
+library(tidyverse) # everything for data wrangling (included ggplot2)
+library(dplyr) # some more for data wrangling 
+library(rstan) 
+library(bayesplot) 
+library(loo)  
+library(sjPlot)
+library(insight)
+library(ggridges)
+library(ggrepel)
+
+options(mc.cores = parallel::detectCores()).
+rstan_options(auto_write = TRUE)
 ```
 
 # WT adjustments and rerunning of code to create WT variables
@@ -366,40 +380,40 @@ plot_BSM3
 
 ```{r}
 
-# Ensure your data frame is named clim_wt_combined
-# Filter the data for the desired time period
-filtered_data <- clim_wt_combined %>%
-  filter(Date >= as.Date("2020-05-01") & Date <= as.Date("2020-09-30"))
-
-# Get unique Station_IDs
-unique_stations <- unique(filtered_data$Station_ID)
-
-# Create a separate figure for each Station_ID
-for (station in unique_stations) {
-  station_data <- filtered_data %>%
-    filter(Station_ID == station)
-  
-  station_comb_plot <- ggplot(station_data, aes(x = Date)) +
-    # WT_daily_mean as blue line underneath surface at 0m
-    geom_line(aes(y = WT_daily_mean), color= "darkblue", size= 1) +
-    # prec as bars going upward from 0
-    geom_bar(aes(y = prec / 30 * 0.60), stat = "identity", fill = "lightblue", color = "darkblue", alpha = 0.7) +
-    scale_y_continuous(
-      name = "Mean WT (m)",
-      limits = c(-0.60, 0.60),
-       breaks = seq(-0.60, 0.60, by = 0.15),
-      sec.axis = sec_axis(~ . * 60, name = "Precipitation (mm)", breaks = seq(-30, 30, 10))
-    ) +
-    labs(title = paste("Mean WT and precipitation per day during growth season 2020 for", station),
-         x = "Date", y = "Mean WT") +
-    theme_minimal() +
-    theme(axis.text.x = element_text(angle = 45, hjust = 1))
-  
-  # Save the plot as a PNG file
-  ggsave(filename = paste0("../figures/WT_prec_2020", station, ".png"), plot = station_comb_plot, width = 10, height = 6)
-  
-  print(station_comb_plot)
-}
+# # Ensure your data frame is named clim_wt_combined
+# # Filter the data for the desired time period
+# filtered_data <- clim_wt_combined %>%
+#   filter(Date >= as.Date("2020-05-01") & Date <= as.Date("2020-09-30"))
+# 
+# # Get unique Station_IDs
+# unique_stations <- unique(filtered_data$Station_ID)
+# 
+# # Create a separate figure for each Station_ID
+# for (station in unique_stations) {
+#   station_data <- filtered_data %>%
+#     filter(Station_ID == station)
+#   
+#   station_comb_plot <- ggplot(station_data, aes(x = Date)) +
+#     # WT_daily_mean as blue line underneath surface at 0m
+#     geom_line(aes(y = WT_daily_mean), color= "darkblue", size= 1) +
+#     # prec as bars going upward from 0
+#     geom_bar(aes(y = prec / 30 * 0.60), stat = "identity", fill = "lightblue", color = "darkblue", alpha = 0.7) +
+#     scale_y_continuous(
+#       name = "Mean WT (m)",
+#       limits = c(-0.60, 0.60),
+#        breaks = seq(-0.60, 0.60, by = 0.15),
+#       sec.axis = sec_axis(~ . * 60, name = "Precipitation (mm)", breaks = seq(-30, 30, 10))
+#     ) +
+#     labs(title = paste("Mean WT and precipitation per day during growth season 2020 for", station),
+#          x = "Date", y = "Mean WT") +
+#     theme_minimal() +
+#     theme(axis.text.x = element_text(angle = 45, hjust = 1))
+#   
+#   # Save the plot as a PNG file
+#   ggsave(filename = paste0("../figures/WT_prec_2020", station, ".png"), plot = station_comb_plot, width = 10, height = 6)
+#   
+#   print(station_comb_plot)
+# }
 ```
 
 ## Combine WT variables with reveg
@@ -453,7 +467,8 @@ reveg_wt <- wtvar %>%
    left_join(reveg_wt, by=c('Location', 'Sublocation', 'year'))
 
 reveg_wt <- reveg_wt %>%
-   mutate_at(c('Location','Sublocation', 'Treatment_ID', 'Treatment'), as.factor)
+   mutate_at(c('Location','Sublocation', 'Treatment_ID', 'Treatment', 'Station_ID.y'), as.factor) %>%
+  rename(Station_ID = Station_ID.y)
 
 
 ```
@@ -472,4 +487,142 @@ reveg_var %>%
   filter(Treatment==(c('S', 'R'))) %>%
   summarise(mean = mean(Sphagnum, na.rm=TRUE),
             se = sd(Sphagnum, na.rm= TRUE/ sqrt(n())))
+```
+
+# Run brms models Sphagnum
+
+Year 3 only
+
+```{r}
+H1.Sph.revWT <- reveg_wt %>%
+  filter(t_year==3) %>%
+  filter(Treatment!='R') %>%
+  select(Location, Sublocation, Block, Treatment, Station_ID, Roughness, Slope, Sphagnum, Change_Total, Sphagnum_nozero, Sphagnum_int, Sphagnum_no1, Sphagnum_beta)
+
+```
+
+```{r}
+WT <- reveg_wt %>%
+  filter(Treatment != 'R') %>%
+  filter(!is.na(Station_ID)) %>%
+  select(c(year, Location, Sublocation, Station_ID, t_year, consecutive_days_count, gs_mean, gs_max, gs_min, total_days)) %>%
+   distinct(year, Station_ID, .keep_all = TRUE)
+
+WT2 <- WT %>%
+  group_by(Location, Sublocation, Station_ID) %>%
+ summarise(WT_consecutive_days_below_max = max(consecutive_days_count),
+           WT_mean = mean(gs_mean, na.rm = TRUE),
+           WT_total_days_below_sum = sum(total_days))
+
+WT2
+```
+
+```{r}
+H1.Sph.revWT <- full_join(H1.Sph.revWT, WT2, by=c('Location', 'Sublocation', 'Station_ID'))
+rm(WT, WT2)
+
+H1.Sph.revWT <- H1.Sph.revWT %>%
+  mutate_at(c('Location', 'Sublocation','Block', 'Treatment'), as.factor)
+```
+
+```{r}
+#Checking for zeros and ones
+summary(H1.Sph.revWT$Sphagnum_beta / 100)
+# All is good here, no values are 0 and no values are 1
+
+#Check for missing values
+summary(H1.Sph.revWT)
+sum(is.na(H1.Sph.revWT))
+colSums(is.na(H1.Sph.revWT))
+```
+
+```{r}
+# Assuming H1.Sph.revWT has a column named 'Station_ID' to identify the stations
+
+# Custom function to impute missing values based on nearby stations
+impute_custom <- function(data, target_column, target_station, nearby_stations) {
+  # Calculate the mean of the nearby stations
+  mean_value <- data %>%
+    filter(Station_ID %in% nearby_stations) %>%
+    summarise(mean_value = mean(!!sym(target_column), na.rm = TRUE)) %>%
+    pull(mean_value)
+  
+  # Impute the missing values in the target station
+  data <- data %>%
+    mutate(!!sym(target_column) := ifelse(Station_ID == target_station & is.na(!!sym(target_column)), mean_value, !!sym(target_column)))
+  
+  return(data)
+}
+
+# Impute missing values for BSM-1 and HM-2
+H1.Sph.revWT.imp <- impute_custom(H1.Sph.revWT, 'WT_consecutive_days_below_max', 'BSM-1', c('BSM-2', 'BSM-3'))
+H1.Sph.revWT.imp <- impute_custom(H1.Sph.revWT.imp, 'WT_consecutive_days_below_max', 'HM-2', c('HM-1', 'HM-3'))
+
+H1.Sph.revWT.imp <- impute_custom(H1.Sph.revWT.imp, 'WT_total_days_below_sum', 'BSM-1', c('BSM-2', 'BSM-3'))
+H1.Sph.revWT.imp <- impute_custom(H1.Sph.revWT.imp, 'WT_total_days_below_sum', 'HM-2', c('HM-1', 'HM-3'))
+
+colSums(is.na(H1.Sph.revWT.imp))
+```
+
+```{r}
+init_fun <- function() list(
+  b = rnorm(1, 0, 1),
+  phi = runif(1, 0.1, 1)
+)
+```
+
+```{r}
+H1.Sph.beta.revWT<-   brm(Sphagnum_beta/100 ~ Treatment + WT_total_days_below_sum + WT_consecutive_days_below_max + WT_mean + (1 | Location/Sublocation),
+                   data=H1.Sph.revWT,
+                 Beta(link = "logit", link_phi = "log"),
+                chains = 4, # nb of chains
+                 iter = 4000, # nb of iterations, including burnin
+                 warmup = 1000, # burnin
+                 thin = 3,
+                control = list(adapt_delta = 0.99, max_treedepth = 15))
+                init = init_fun
+
+saveRDS(H1.Sph.beta.revWT, 'RDS-files/H1.Sph.beta.revWT.RDS')
+readRDS(H1.Sph.beta.revWT, 'RDS-files/H1.Sph.beta.revWT.RDS')
+```
+
+```{r}
+summary(H1.Sph.beta.revWT)
+```
+
+```{r}
+plot(H1.Sph.beta.revWT)
+```
+
+```{r}
+# Bayesian R-squared
+r2 <- bayes_R2(H1.Sph.beta.revWT)
+print(r2)
+```
+
+```{r}
+pp_check(H1.Sph.beta.revWT, ndraws = 100, type = 'dens_overlay')
+```
+
+```{r}
+H1.Sph.beta.revWT.imp<-   brm(Sphagnum_beta/100 ~ Treatment + WT_total_days_below_sum + WT_consecutive_days_below_max + WT_mean + (1 | Location/Sublocation),
+                   data=H1.Sph.revWT.imp,
+                 Beta(link = "logit", link_phi = "log"),
+                chains = 4, # nb of chains
+                 iter = 4000, # nb of iterations, including burnin
+                 warmup = 1000, # burnin
+                 thin = 3,
+                control = list(adapt_delta = 0.99, max_treedepth = 15))
+                init = init_fun
+
+saveRDS(H1.Sph.beta, 'RDS-files/H1.Sph.beta.RDS')
+readRDS(H1.Sph.beta, 'RDS-files/H1.Sph.beta.RDS')
+```
+
+```{r}
+summary(H1.Sph.beta.revWT.imp)
+```
+
+```{r}
+pp_check(H1.Sph.beta.revWT.imp, ndraws = 100, type = 'dens_overlay')
 ```
