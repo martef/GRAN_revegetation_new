@@ -337,6 +337,47 @@ pca_summary3_sorted_by_PC <- pca_summary3 %>%
 print(pca_summary3_sorted_by_PC)
 ```
 
+### Posterior tests
+
+```{r}
+screeplot(pca_result, type = "lines")
+```
+
+A scree plot helps visualize the proportion of variance explained by each principal component. This can help you decide how many components to retain.
+
+```{r}
+biplot(pca_result)
+```
+
+A biplot overlays a scatter plot of the scores of the first two principal components with the loadings of the original variables. This can help you interpret how variables contribute to the principal components.
+
+```{r}
+scores <- pca_result$x
+plot(scores[,1], scores[,2], xlab = "PC1", ylab = "PC2")
+```
+
+Plot the scores of the principal components to identify patterns, clusters, or outliers in your data.
+
+```{r}
+library(factoextra)
+fviz_pca_var(pca_result)
+```
+
+Correlation circle plot: This plot shows the correlation between the original variables and the principal components, often used to interpret the results of the PCA.
+
+```{r}
+fviz_contrib(pca_result, choice = "var", axes = 1)
+```
+
+Contributions plot
+
+```{r}
+kmeans_result <- kmeans(scores[,1:2], centers = 3)
+plot(scores[,1], scores[,2], col = kmeans_result$cluster)
+```
+
+Cluster analysis
+
 ## Soil temperatures
 
 ```{r}

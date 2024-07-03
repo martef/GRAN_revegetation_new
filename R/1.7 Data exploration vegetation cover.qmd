@@ -11,6 +11,7 @@ editor: visual
 library(tidyverse)
 library(readr)
 library(lubridate)
+library(forcats)
 ```
 
 ## Uploading and cleaning the data
@@ -26,8 +27,6 @@ reveg_var <- reveg_var %>%
   mutate_at(c('year', 'month', 'Location', 'Sublocation', 'Block', 'Treatment_ID', 'Treatment', 'Name', 'Station_ID'), as.factor) %>%
   select('Date','year','month', 'Name','Location','Sublocation', 'Block', 'Treatment', 'Treatment_ID', 'Station_ID', everything()) %>%
   rename(WT_consecutive_days_below = consecutive_days_count, WT_total_days_below=total_days, WT_mean=gs_mean, WT_max=gs_max, WT_min=gs_min)
-
-
 
 ```
 
@@ -135,6 +134,8 @@ plot_ref <- reveg_long %>%
 plot_ref +  theme(legend.position="bottom")
 ```
 
+Overview of the FTGs in M in year 3
+
 ```{r}
 plot_M <- reveg_long %>%
   filter(Treatment=='M' & t_year==3) %>%
@@ -146,6 +147,8 @@ plot_M <- reveg_long %>%
   
 plot_M +  theme(legend.position="bottom")
 ```
+
+Overview of FTGs in M&S in year 3:
 
 ```{r}
 plot_S <- reveg_long %>%
@@ -159,6 +162,8 @@ plot_S <- reveg_long %>%
 plot_S +  theme(legend.position="bottom")
 ```
 
+Overview of FTGs in C in year 3:
+
 ```{r}
 plot_C <- reveg_long %>%
   filter(Treatment=='C' & t_year==3) %>%
@@ -170,6 +175,8 @@ plot_C <- reveg_long %>%
   
 plot_C +  theme(legend.position="bottom")
 ```
+
+Summary year 3 + references:
 
 ```{r}
 
@@ -202,7 +209,6 @@ mean_cover_ref <- reveg_var %>%
     values_from = value
   )
 
-print(mean_cover_ref)
 
 ```
 
@@ -236,7 +242,6 @@ mean_cover_S_3 <- reveg_var %>%
     values_from = value
   )
 
-print(mean_cover_S_3)
 ```
 
 ```{r}
@@ -269,7 +274,6 @@ mean_cover_M_3 <- reveg_var %>%
     values_from = value
   )
 
-print(mean_cover_M_3)
 ```
 
 ```{r}
@@ -301,8 +305,6 @@ mean_cover_C_3 <- reveg_var %>%
     names_from = statistic,
     values_from = value
   )
-
-print(mean_cover_C_3)
 ```
 
 Combine these outputs:
@@ -328,14 +330,6 @@ combined_mean_cover <- bind_rows(mean_cover_ref, mean_cover_S_3, mean_cover_M_3,
 print(combined_mean_cover)
 ```
 
-```{r}
-reveg_var %>%
-  filter(Treatment == 'R') %>%
-  summarise(mean_cover = mean(Other_veg, na.rm = TRUE),
-            max_cover = max(Other_veg, na.rm= TRUE))
-
-```
-
 The reference plots have a high cover of Sphagnum (about 71% mean), and a decent cover of Narthecium, evergreens (mostly heather) and Trichophorum. There's also some litter (about 14%ish), while Eriopherum covers only ca. 3%)
 
 The natural cover of Eriopherum is quite low, which is interesting to compare to the experimental plots, as this is a plant that increases rapidly in newly rewetted peatlands. In the experimental plots:
@@ -353,7 +347,7 @@ plot_eri +  theme(legend.position="bottom")
 ```
 
 ```{r}
-mean_cover_eri <- reveg %>%
+mean_cover_eri <- reveg_var %>%
   group_by(Treatment, t_year) %>%
   summarise(mean_cover = mean(Eriopherum, na.rm = TRUE),
             max_cover = max(Eriopherum, na.rm = TRUE))
@@ -362,19 +356,22 @@ print(mean_cover_eri)
 
 The cover of Eriopherum is higher than in the reference plots in both C, M, and S after 3 years, if not by much. In some specific plots the cover is substantially higher than the references.
 
-Checking if there are other groups that may be of interest in the experimental plots:
+There is however a number here I need to check further. How can there be max 80% cover of Eriopherum in M in year 2, while this is only 30% in year 3? That is a drastic decrease. I have narrowed the problem down to VSM2:
 
 ```{r}
-plot_fun <- reveg_long %>%
-  filter(Treatment!='R') %>%
-  ggplot(aes(x=reorder(functional_group, desc(cover), FUN = median), y=cover)) +   
-  geom_boxplot()+   
-  ylab("Cover of the various functional groups in the reference plots") +
-  xlab("Functional plant groups (and some other cover groups)") +
-  theme(axis.text.x = element_text(angle = 90, vjust = 0.5, hjust=1)) +
-  facet_wrap(~t_year, ncol = 1)
-  
-plot_fun +  theme(legend.position="bottom")
+reveg_var %>%
+  filter(Treatment=='M' & Station_ID=='VSM-2') %>%
+  select(c(Location, Sublocation, Block, t_year, Eriopherum, Mulch, Bare_peat, Sphagnum, Polytrichum))
+```
+
+Overall vegetation cover of other plant FTGs than Sphagnum in R:
+
+```{r}
+
+reveg_var %>%
+  filter(Treatment == 'R') %>%
+  summarise(mean_cover = mean(Other_veg, na.rm = TRUE),
+            max_cover = max(Other_veg, na.rm= TRUE))
 ```
 
 ```{r}
@@ -396,10 +393,10 @@ Some plots have a very high cover of other types of mosses. Same goes for Erioph
 
 ```{r}
 plot_hea <- reveg_var %>%
-  filter(!is.na(Heathers)) %>%  # Exclude the NA value
+  filter(!is.na(Evergreens)) %>%  # Exclude the NA value
   ggplot() +   
   geom_boxplot()+   
-  aes(x=Treatment, y=Heathers, color=as.factor(t_year)) +
+  aes(x=Treatment, y=Evergreens, color=as.factor(t_year)) +
   ylab("Heathers cover") +
   labs(color = "Growth seasons since treatment") +
   theme_bw()
@@ -414,7 +411,9 @@ There is an interesting increase in heathers within the Sphagnum treatments. Thi
 
 plot_SP <- reveg_var %>%
   filter(!is.na(Sphagnum)) %>%  # Exclude NA values in the Sphagnum column
-  mutate(Treatment = factor(Treatment, levels = c("C", "M", "S", "R"))) %>%  # Rearrange Treatment levels
+  mutate(Treatment = factor(Treatment, levels = c("C", "M", "S", "R")),
+         Treatment = fct_recode(Treatment, "M&S" = "S")) %>%  
+# Rearrange Treatment levels
   ggplot(aes(x = Treatment, y = Sphagnum, color = as.factor(t_year), fill=as.factor(t_year), alpha=0.8)) +   
   geom_violin(scale = "width", width= 0.8) +   
   geom_point(pch = 21, size=1, position = position_jitterdodge())+
@@ -433,7 +432,9 @@ ggsave(plot_SP, filename='../figures/violinplot_SP.png')
 ```{r}
 plot_TV <- reveg_var %>%
   filter(!is.na(Total_veg)) %>%  # Exclude NA values in the Sphagnum column
-   mutate(Treatment = factor(Treatment, levels = c("C", "M", "S", "R"))) %>%  # Rearrange Treatment levels
+   mutate(Treatment = factor(Treatment, levels = c("C", "M", "S", "R")),
+          Treatment = fct_recode(Treatment, "M&S" = "S")) %>% 
+  # Rearrange Treatment levels
   ggplot(aes(x = Treatment, y = Total_veg, color = as.factor(t_year), fill=as.factor(t_year), alpha=0.8)) +   
   geom_violin(scale = "width", width= 0.8) +  
  geom_point(pch = 21,, size=1, position = position_jitterdodge())+
@@ -451,7 +452,8 @@ ggsave(plot_TV, filename='../figures/violinplot_TV.png')
 ```{r}
 plot_OV <- reveg_var %>%
   filter(!is.na(Other_veg)) %>%  # Exclude NA values in the Sphagnum column
-   mutate(Treatment = factor(Treatment, levels = c("C", "M", "S", "R"))) %>%  # Rearrange Treatment levels
+   mutate(Treatment = factor(Treatment, levels = c("C", "M", "S", "R")),
+          Treatment = fct_recode(Treatment, "M&S" = "S")) %>% # Rearrange Treatment levels
   ggplot(aes(x = Treatment, y = Other_veg, color = as.factor(t_year), fill=as.factor(t_year), alpha=0.8)) +   
   geom_violin(scale = "width", width= 0.8) +   
   geom_point(pch = 21, size=1, position = position_jitterdodge())+

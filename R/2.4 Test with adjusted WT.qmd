@@ -26,7 +26,7 @@ library(insight)
 library(ggridges)
 library(ggrepel)
 
-options(mc.cores = parallel::detectCores()).
+options(mc.cores = parallel::detectCores())
 rstan_options(auto_write = TRUE)
 ```
 
@@ -234,6 +234,9 @@ final_variables %>%
   rename(consecutive_days_low_gs = consecutive_days_count, total_days_low_gs = total_days)
 
 #write.csv(final_variables, '../data/WT_variables2.csv')
+#final_variables <- readr::read_delim('../data/WT_variables2.csv',
+ #                      delim =  ',',
+  #                    col_names = TRUE)
 final_variables
 ```
 
@@ -537,8 +540,6 @@ colSums(is.na(H1.Sph.revWT))
 ```
 
 ```{r}
-# Assuming H1.Sph.revWT has a column named 'Station_ID' to identify the stations
-
 # Custom function to impute missing values based on nearby stations
 impute_custom <- function(data, target_column, target_station, nearby_stations) {
   # Calculate the mean of the nearby stations
@@ -572,17 +573,17 @@ init_fun <- function() list(
 ```
 
 ```{r}
-H1.Sph.beta.revWT<-   brm(Sphagnum_beta/100 ~ Treatment + WT_total_days_below_sum + WT_consecutive_days_below_max + WT_mean + (1 | Location/Sublocation),
-                   data=H1.Sph.revWT,
-                 Beta(link = "logit", link_phi = "log"),
-                chains = 4, # nb of chains
-                 iter = 4000, # nb of iterations, including burnin
-                 warmup = 1000, # burnin
-                 thin = 3,
-                control = list(adapt_delta = 0.99, max_treedepth = 15))
-                init = init_fun
+# H1.Sph.beta.revWT<-   brm(Sphagnum_beta/100 ~ Treatment + WT_total_days_below_sum + WT_consecutive_days_below_max + WT_mean + (1 | Location/Sublocation),
+#                    data=H1.Sph.revWT,
+#                  Beta(link = "logit", link_phi = "log"),
+#                 chains = 4, # nb of chains
+#                  iter = 4000, # nb of iterations, including burnin
+#                  warmup = 1000, # burnin
+#                  thin = 3,
+#                 control = list(adapt_delta = 0.99, max_treedepth = 15))
+              
 
-saveRDS(H1.Sph.beta.revWT, 'RDS-files/H1.Sph.beta.revWT.RDS')
+#saveRDS(H1.Sph.beta.revWT, 'RDS-files/H1.Sph.beta.revWT.RDS')
 readRDS(H1.Sph.beta.revWT, 'RDS-files/H1.Sph.beta.revWT.RDS')
 ```
 
@@ -615,8 +616,8 @@ H1.Sph.beta.revWT.imp<-   brm(Sphagnum_beta/100 ~ Treatment + WT_total_days_belo
                 control = list(adapt_delta = 0.99, max_treedepth = 15))
                 init = init_fun
 
-saveRDS(H1.Sph.beta, 'RDS-files/H1.Sph.beta.RDS')
-readRDS(H1.Sph.beta, 'RDS-files/H1.Sph.beta.RDS')
+saveRDS(H1.Sph.beta.revWT.imp, 'RDS-files/H1.Sph.beta.revWT.imp.RDS')
+#readRDS(H1.Sph.beta, 'RDS-files/H1.Sph.beta.RDS')
 ```
 
 ```{r}
@@ -626,3 +627,110 @@ summary(H1.Sph.beta.revWT.imp)
 ```{r}
 pp_check(H1.Sph.beta.revWT.imp, ndraws = 100, type = 'dens_overlay')
 ```
+
+```{r}
+H3.Sph.beta.revWT.imp<-   brm(Sphagnum_beta/100 ~ WT_total_days_below_sum + WT_consecutive_days_below_max + WT_mean + (1 | Location/Sublocation),
+                   data=H1.Sph.revWT.imp,
+                 Beta(link = "logit", link_phi = "log"),
+                chains = 4, # nb of chains
+                 iter = 4000, # nb of iterations, including burnin
+                 warmup = 1000, # burnin
+                 thin = 3,
+                control = list(adapt_delta = 0.99, max_treedepth = 15))
+                init = init_fun
+
+# saveRDS(H3.Sph.beta.revWT.imp, 'RDS-files/H3.Sph.beta.revWT.imp.RDS')
+readRDS(H3.Sph.beta.revWT.imp, 'RDS-files/H3.Sph.beta.revWT.imp.RDS')              
+```
+
+```{r}
+summary(H3.Sph.beta.revWT.imp)
+```
+
+```{r}
+pp_check(H3.Sph.beta.revWT.imp, ndraws = 100, type = 'dens_overlay')
+```
+
+```{r}
+# Generate predictions from the models
+pred_H1 <- posterior_predict(H1.Sph.beta.revWT.imp)
+pred_H3 <- posterior_predict(H3.Sph.beta.revWT.imp)
+
+
+#Compare variance explained by full model vs submodel
+var_H1<- apply(pred_H1, 2, var)
+var_H3 <- apply(pred_H3, 2, var)
+```
+
+```{r}
+# Calculate variance explained
+prop_var_Treatment <- 1 - var_H3 / var_H1
+
+mean(prop_var_Treatment)
+cat("Proportion of variance explained by Treatment: ", mean(prop_var_Treatment), "\n")
+
+```
+
+```{r}
+loo_H1 <- loo(H1.Sph.beta.revWT.imp)
+loo_H3 <- loo(H3.Sph.beta.revWT.imp)
+
+loo_compare(loo_H1, loo_H3)
+```
+
+```{r}
+# Create the pp_check plot
+ppc_H1 <- pp_check(H1.Sph.beta.revWT.imp, ndraws = 100, type = 'dens_overlay')
+
+# Add axis labels
+ppc_H1 <- ppc_H1 + labs(x = "Proportion of Sphagnum cover", y = "Density")
+
+# Save the plot to a file
+ggsave(filename = '../figures/ppc_H1.revWT.imp.png', plot = ppc_H1)
+ppc_H1
+```
+
+```{r}
+# Extract posterior samples
+posterior_samples <- as.data.frame(H1.Sph.beta.revWT.imp)
+
+# List of variables of interest
+variables <- c("b_Treatment", "b_WT_consecutive_days_below_max", 
+               "b_WT_total_days_below_sum")
+
+# Extracting posterior samples for the variables of interest
+selected_columns <- colnames(posterior_samples)[grepl(paste(variables, collapse = "|"), colnames(posterior_samples))]
+
+# Reshape data for ggplot2
+posterior_data <- posterior_samples %>%
+  pivot_longer(cols = all_of(selected_columns), names_to = "Variable", values_to = "Value")
+
+# Rename variables for better y-axis labels
+posterior_data$Variable <- recode(posterior_data$Variable, 
+                                  "b_WT_consecutive_days_below_max" = "max consecutive days low WT",
+                                  "b_WT_total_days_below_sum" = "total days low WT",
+                                  "b_TreatmentS" = "Treatment M&S",
+                                  'b_TreatmentM' = 'Treatment M')  
+
+# Define x-axis limits to exclude extreme tails
+x_limits <- c(-2.5, 5)  # Adjust these values based on your data
+
+# Create the ridge plot
+ridge_plot <- ggplot(posterior_data, aes(x = Value, y = Variable, fill = Variable)) +
+  geom_density_ridges() +
+  labs(x = "Posterior value", y = "Explanatory variable", title = "Posterior distributions of explanatory variables") +
+  theme_ridges() +
+  theme(legend.position = "none",
+        plot.title = element_text(size = 14, hjust=0, vjust=1),
+        axis.title.x = element_text(hjust = 0.5, vjust = 0.5),   # Move x-axis label to the left
+    axis.title.y = element_text(margin = margin(t = 80, r = 10, b = 0, l = 0))) + # Move y-axis somewhat down
+  coord_cartesian(xlim = x_limits) +
+  scale_fill_brewer(palette = "PuOr")
+
+
+# Save the plot
+ggsave(filename = '../figures/treatment_posterior_distributions.H1.revWT.imp.png', plot = ridge_plot)
+ridge_plot
+```
+
+Running any interaction models are definitely too complex for the data (I've tested, with models not converging and lots of warnings).

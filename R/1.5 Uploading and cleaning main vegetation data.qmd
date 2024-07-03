@@ -32,7 +32,7 @@ reveg <- reveg[-1,] #Removing row 1
 reveg[reveg == '<1'] <- '0.1' #change all <1 to 0.1
 reveg <- reveg %>% 
   rename(Location = Localition) #Fix bad spelling
-reveg$Date <- as.POSIXct(dmy(reveg$Date))
+reveg$Date <- ymd(reveg$Date)
 reveg <- reveg %>% 
   mutate_at(c('Location', 'Sublocation', 'Block', 'Treatment'), as.factor)
 reveg <- reveg %>% 
