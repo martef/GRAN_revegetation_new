@@ -252,11 +252,12 @@ denplot_treatment2 <-
     vline_width = 0.2, vline_color = "black", rel_min_height = 0.01) +
   scale_color_brewer(palette="Dark2") +
   theme_minimal() +
+  theme(legend.position = 'none') +
   facet_wrap(~ Nutrients, scales = "free_x")
 
   
 print(denplot_treatment2)
-ggsave(denplot_treatment2, filename='densityplot_nutrients_treatment.png')
+ggsave(denplot_treatment2, filename='../figures/densityplot_nutrients_treatment.png')
 ```
 
 ```{r}
@@ -268,11 +269,12 @@ denplot_loc <-
     vline_width = 0.2, vline_color = "black", rel_min_height = 0.01) +
   scale_color_brewer(palette="Dark2") +
   theme_minimal() +
+  theme(legend.position = 'none') +
   facet_wrap(~ Nutrients, scales = "free_x")
 
   
 print(denplot_loc)
-ggsave(denplot_loc, filename='densityplot_nutrients_location.png')
+ggsave(denplot_loc, filename='../figures/densityplot_nutrients_location.png')
 ```
 
 # Analyses of nutrient variation
