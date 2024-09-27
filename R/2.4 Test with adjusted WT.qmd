@@ -25,6 +25,8 @@ library(sjPlot)
 library(insight)
 library(ggridges)
 library(ggrepel)
+library(cowplot)
+library(tidybayes)
 
 options(mc.cores = parallel::detectCores())
 rstan_options(auto_write = TRUE)
@@ -54,6 +56,8 @@ wt_season <- wt_season %>%
 
 ## Adjust the values of BSM1, BSM2, BSM3
 
+Adjusting the WT levels at the stations that clearly are giving a too low reading, as the real time measurements aren't equal, and the data indicate a "roof" at about -10cm, where a zero (or maybe even a few plus) clearly should have been. Adjusting the levels by subtracking the measured maximum to at least get level 0 readings.
+
 ```{r}
 #Checking max level
 wt_season %>%
@@ -78,6 +82,8 @@ wt_season %>%
   filter(Station_ID %in% c('BSM1')) %>%
   group_by(Station_ID)
 ```
+
+The WT levels are now adjusted by about 7 cm at BSM1.
 
 ```{r}
 
@@ -107,6 +113,8 @@ wt_season %>%
   group_by(Station_ID)
 ```
 
+The WT levels are now adjusted with approx 3 cm.
+
 ```{r}
 #Checking max level
 wt_season %>%
@@ -134,48 +142,54 @@ wt_season %>%
   group_by(Station_ID)
 ```
 
+The WT levels are now adjusted with approx. 4 cm.
+
+All of these adjustments are very conservative. I think the true valued would be even somewhat higher.
+
+Now to combine the adjusted data with the full dataset
+
 ```{r}
 # Combine adjusted data with the rest of the dataset
-combined_data <- wt_season %>%
-  filter(!Station_ID %in% c("BSM1", "BSM2", "BSM3")) %>%
-  bind_rows(adjusted_data_BSM1, adjusted_data_BSM2, adjusted_data_BSM3)
+wt_season_rev <- wt_season %>%
+  filter(!Station_ID %in% c("BSM1", "BSM2", "BSM3")) %>% #remove original data
+  bind_rows(adjusted_data_BSM1, adjusted_data_BSM2, adjusted_data_BSM3) #add adjusted data
 ```
 
 ## Create new variables
 
 ```{r}
 #Daily means of WT values
-daily_means <- combined_data %>%
+wt_daily_means <- wt_season_rev %>%
   mutate(Location = case_when(
     grepl("^BSM", Station_ID) ~ "BSM",
     grepl("^VSM", Station_ID) ~ "VSM",
     grepl("^HM", Station_ID) ~ "HM",
     TRUE ~ NA_character_  # This handles any cases not matching the specified pattern
   )) %>%
-  group_by(Station_ID, Location, jday, month_name, year) %>%
+  group_by(Station_ID, Location, jday, month, month_name, year) %>%
  summarise_by_time(.date_var=DateTime,
                     .by="day",
                     daily_mean = mean(LEVEL), daily_max = max(LEVEL), daily_min= min(LEVEL))
 
-daily_means
+wt_daily_means
 ```
 
 ```{r}
 #Summary per growth season
-gs <-combined_data%>%
+gs_wt <-wt_daily_means%>%
   group_by(Station_ID, year)%>%
   summarise_by_time(.date_var=DateTime,
-                    .by="year", gs_mean = mean(LEVEL), gs_max = max(LEVEL), gs_min = min(LEVEL) )
-gs
+                    .by="year", gs_mean = mean(daily_mean), gs_max = max(daily_max), gs_min = min(daily_min) )
+gs_wt
 ```
 
 ```{r}
 # Create variable for days below -20cm WT within growth season
-daily_means <- daily_means %>%
+wt_daily_means <- wt_daily_means %>%
   mutate(year=as.factor(year(DateTime))) %>%
   mutate(month=as.factor(month(DateTime)))
 
-total_days_below_minus_0.2 <- daily_means %>% 
+total_days_below_minus_0.2 <- wt_daily_means %>% 
   filter(daily_mean < -0.2) %>% 
   group_by(Station_ID, year) %>% 
   summarise(total_days = n_distinct(DateTime))%>%
@@ -204,7 +218,7 @@ total_days_below_minus_0.2_complete
 
 ```{r}
 #Create variable for max no of consecutive days wit WT <-0.2 within growth season
-df <- daily_means %>%
+df <- wt_daily_means %>%
   mutate(consecutive_days = daily_mean < -0.2) %>%
   group_by(Station_ID, year) %>%
   mutate(consecutive_days = cumsum(consecutive_days) - cummax((!consecutive_days) * cumsum(consecutive_days))) %>%
@@ -220,28 +234,28 @@ result
 
 ```{r}
 #Combine variables for growth season
-gs <- gs %>% 
+gs_wt <- gs_wt %>% 
   select(-c('DateTime')) %>%
   mutate(year=as.factor(year))
 
 
-final_variables <- result %>%
-  full_join(gs, by=c('Station_ID','year'))
-final_variables <- final_variables %>%
+wt_variables <- result %>%
+  full_join(gs_wt, by=c('Station_ID','year'))
+wt_variables <- wt_variables %>%
   full_join(total_days_below_minus_0.2_complete, by=c('Station_ID', 'year'))
 
-final_variables %>%
+wt_variables %>%
   rename(consecutive_days_low_gs = consecutive_days_count, total_days_low_gs = total_days)
 
 #write.csv(final_variables, '../data/WT_variables2.csv')
-#final_variables <- readr::read_delim('../data/WT_variables2.csv',
+#wt_variables <- readr::read_delim('../data/WT_variables2.csv',
  #                      delim =  ',',
   #                    col_names = TRUE)
-final_variables
+wt_variables
 ```
 
 ```{r}
-final_variables_loc <- final_variables %>%
+wt_variables_loc <- wt_variables %>%
 mutate(Location = case_when(
     grepl("^BSM", Station_ID) ~ "BSM",
     grepl("^VSM", Station_ID) ~ "VSM",
@@ -254,20 +268,7 @@ mutate(Location = case_when(
             WT_max = max(gs_max, na.rm = TRUE),
             WT_min = min(gs_min, na.rm = TRUE),
             total_days_below = max(total_days, na.rm=TRUE))
-final_variables_loc
-```
-
-```{r}
-gs_loc <- wt_season %>%
-  mutate(Location = case_when(
-    grepl("^BSM", Station_ID) ~ "BSM",
-    grepl("^VSM", Station_ID) ~ "VSM",
-    grepl("^HM", Station_ID) ~ "HM",
-    TRUE ~ NA_character_ )) %>% # This handles any cases not matching the specified patterns 
-  group_by(Location, year)%>%
-  summarise_by_time(.date_var=DateTime, .by="year", gs_mean = mean(LEVEL), gs_max = max(LEVEL), gs_min = min(LEVEL))
-  
-gs_loc
+wt_variables_loc
 ```
 
 ## Combine WT with precipitation
@@ -282,19 +283,19 @@ climdat_season <- climdat_season %>%
   rename(clim_station = Name, Date = Time) %>%
   mutate(across(c('year', 'month'), as.factor))
 
-#Create column for the weather station in the daily_means dataset
-daily_means <- daily_means %>%
+#Create column for the weather station in the wt_daily_means dataset
+wt_daily_means <- wt_daily_means %>%
   mutate(clim_station = case_when(Location== 'VSM' ~ 'Vestersetermyra',
                          Location=='HM' ~ 'Hoydalsmoan',
                          Location == 'BSM' ~ 'Hoydalsmoan',
                                 TRUE ~ NA))
 
-#rename columns in daily_means
-daily_means <- daily_means %>%
+#rename columns in wt_daily_means
+wt_daily_means <- wt_daily_means %>%
   rename(Date=DateTime)
 
 #join climate and WT
-clim_wt <- daily_means %>%
+clim_wt <- wt_daily_means %>%
   left_join(climdat_season, by=c('clim_station', 'Date', 'year', 'month', 'jday', 'month_name'))
 
 clim_wt_combined <- clim_wt %>%
@@ -316,113 +317,192 @@ clim_wt_combined
 
 ```{r}
 plot_BSM2 <- clim_wt_combined %>%
-  filter(Station_ID == "BSM2", Date >= as.Date("2021-05-15") & Date <= as.Date("2021-09-15")) %>%
+  filter(Station_ID == "BSM2", Date >= as.Date("2021-05-01") & Date <= as.Date("2021-09-30")) %>%
   ggplot(aes(x = Date)) +
-  # WT_daily_mean as blue bars going downward from 0
-  geom_line(aes(y = WT_daily_mean), color= "darkblue", size= 1) +
-  # prec as red bars going upward from 0
-  geom_bar(aes(y = prec / 30 * 0.50), stat = "identity", fill = "lightblue", color= "darkblue", alpha = 0.7) +
-  scale_y_continuous(
-    name = "WT_daily_mean",
-    limits = c(-0.50, 0.50),
-    sec.axis = sec_axis(~ . * 60, name = "prec", breaks = seq(-30, 30, 10))
-  ) +
-  labs(title = "WT_daily_mean and Precipitation per Day (15.06.2021 to 15.08.2021) for Station_ID BSM2",
-       x = "Date", y = "WT_daily_mean") +
-  theme_minimal() +
-  theme(axis.text.x = element_text(angle = 45, hjust = 1))
-
-plot_BSM2
-
-```
-
-```{r}
-plot_BSM1 <- clim_wt_combined %>%
-  filter(Station_ID == "BSM1", Date >= as.Date("2021-05-15") & Date <= as.Date("2021-09-15")) %>%
-  ggplot(aes(x = Date)) +
-  # WT_daily_mean as blue bars going downward from 0
-  geom_line(aes(y = WT_daily_mean), color= "darkblue", size= 1) +
-  # prec as red bars going upward from 0
-  geom_bar(aes(y = prec / 30 * 0.50), stat = "identity", fill = "lightblue", color= "darkblue", alpha = 0.7) +
-  scale_y_continuous(
-    name = "WT_daily_mean",
-    limits = c(-0.50, 0.50),
-    sec.axis = sec_axis(~ . * 60, name = "prec", breaks = seq(-30, 30, 10))
-  ) +
-  labs(title = "WT_daily_mean and Precipitation per Day (15.06.2021 to 15.08.2021) for Station_ID BSM1",
-       x = "Date", y = "WT_daily_mean") +
-  theme_minimal() +
-  theme(axis.text.x = element_text(angle = 45, hjust = 1))
-
-plot_BSM1
-```
-
-```{r}
-plot_BSM3 <- clim_wt_combined %>%
-  filter(Station_ID == "BSM3", Date >= as.Date("2021-05-15") & Date <= as.Date("2021-09-15")) %>%
-  ggplot(aes(x = Date)) +
-  # WT_daily_mean as blue bars going downward from 0
-  geom_line(aes(y = WT_daily_mean), color= "darkblue", size= 1) +
-  # prec as red bars going upward from 0
-  geom_bar(aes(y = prec / 30 * 0.50), stat = "identity", fill = "lightblue", color= "darkblue", alpha = 0.7) +
-  scale_y_continuous(
-    name = "Mean WT (m)",
-    limits = c(-0.60, 0.60),
+    # WT_daily_mean as blue line underneath surface at 0m
+    geom_line(aes(y = WT_daily_mean), color= "darkblue", size= 1) +
+    # prec as bars going upward from 0
+    geom_bar(aes(y = prec / 30 * 0.60), stat = "identity", fill = "lightblue", color = "darkblue", alpha = 0.7) +
+    scale_y_continuous(
+      name = "Mean WT (m)",
+      limits = c(-0.60, 0.60),
        breaks = seq(-0.60, 0.60, by = 0.15),
-    sec.axis = sec_axis(~ . * 60, name = "Precipitation (mm)", breaks = seq(-30, 30, 10))
-  ) +
-  labs(title = "Mean WT and precipitation per day growth season 2021 for BSM3",
-       x = "Date", y = "Mean WT") +
-  theme_minimal() +
-  theme(axis.text.x = element_text(angle = 45, hjust = 1))
+      labels = function(x) ifelse(x > 0.15, "", x),  # Hide labels for values > 0.15
+      sec.axis = sec_axis(~ . * 60, name = "Precipitation (mm)", breaks = seq(0, 40, 5))
+    ) +
+    labs(title = paste("Mean WT and precipitation per day during growth season 2020 for", station),
+         x = "Date", y = "Mean WT") +
+    theme_minimal() +
+    theme(axis.text.x = element_text(angle = 45, hjust = 1))
 
-plot_BSM3
+#ggsave(filename = '../figures/WT_prec_BSM2.png', plot = plot_BSM2)
+plot_BSM2
 ```
 
 ## Reprint all WT and prec figures
 
 ```{r}
 
-# # Ensure your data frame is named clim_wt_combined
-# # Filter the data for the desired time period
-# filtered_data <- clim_wt_combined %>%
-#   filter(Date >= as.Date("2020-05-01") & Date <= as.Date("2020-09-30"))
-# 
-# # Get unique Station_IDs
-# unique_stations <- unique(filtered_data$Station_ID)
-# 
-# # Create a separate figure for each Station_ID
-# for (station in unique_stations) {
-#   station_data <- filtered_data %>%
-#     filter(Station_ID == station)
-#   
-#   station_comb_plot <- ggplot(station_data, aes(x = Date)) +
-#     # WT_daily_mean as blue line underneath surface at 0m
-#     geom_line(aes(y = WT_daily_mean), color= "darkblue", size= 1) +
-#     # prec as bars going upward from 0
-#     geom_bar(aes(y = prec / 30 * 0.60), stat = "identity", fill = "lightblue", color = "darkblue", alpha = 0.7) +
-#     scale_y_continuous(
-#       name = "Mean WT (m)",
-#       limits = c(-0.60, 0.60),
-#        breaks = seq(-0.60, 0.60, by = 0.15),
-#       sec.axis = sec_axis(~ . * 60, name = "Precipitation (mm)", breaks = seq(-30, 30, 10))
-#     ) +
-#     labs(title = paste("Mean WT and precipitation per day during growth season 2020 for", station),
-#          x = "Date", y = "Mean WT") +
-#     theme_minimal() +
-#     theme(axis.text.x = element_text(angle = 45, hjust = 1))
-#   
-#   # Save the plot as a PNG file
-#   ggsave(filename = paste0("../figures/WT_prec_2020", station, ".png"), plot = station_comb_plot, width = 10, height = 6)
-#   
-#   print(station_comb_plot)
-# }
+# Ensure your data frame is named clim_wt_combined
+# Filter the data for the desired time period
+filtered_data <- clim_wt_combined %>%
+  filter(Date >= as.Date("2020-05-01") & Date <= as.Date("2020-09-30"))
+
+# Get unique Station_IDs
+unique_stations <- unique(filtered_data$Station_ID)
+
+# Create a separate figure for each Station_ID
+for (station in unique_stations) {
+  station_data <- filtered_data %>%
+    filter(Station_ID == station)
+
+  station_comb_plot <- ggplot(station_data, aes(x = Date)) +
+    # WT_daily_mean as blue line underneath surface at 0m
+    geom_line(aes(y = WT_daily_mean), color= "darkblue", size= 1) +
+    # prec as bars going upward from 0
+    geom_bar(aes(y = prec / 30 * 0.60), stat = "identity", fill = "lightblue", color = "darkblue", alpha = 0.7) +
+    scale_y_continuous(
+      name = "Mean WT (m)",
+      limits = c(-0.60, 0.80),
+       breaks = seq(-0.60, 0.80, by = 0.10),
+      labels = function(x) ifelse(x > 0.15, "", sprintf("%.2f", x)),  # Format numbers with two decimal places  # Hide labels for values > 0.15
+      sec.axis = sec_axis(~ . * 60, name = "Precipitation (mm)", breaks = seq(0, 60, 10))
+    ) +
+    labs(title = paste("Mean WT and precipitation per day during growth season 2020 for", station),
+         x = "Date", y = "Mean WT") +
+    theme_minimal() +
+    theme(axis.text.x = element_text(angle = 45, hjust = 1))
+
+  # Save the plot as a PNG file
+  ggsave(filename = paste0("../figures/WT_prec_2020", station, ".png"), plot = station_comb_plot, width = 10, height = 6)
+
+  print(station_comb_plot)
+}
+```
+
+Then repeat for the other years:
+
+```{r}
+
+# Ensure your data frame is named clim_wt_combined
+# Filter the data for the desired time period
+filtered_data <- clim_wt_combined %>%
+  filter(Date >= as.Date("2021-05-01") & Date <= as.Date("2021-09-30"))
+
+# Get unique Station_IDs
+unique_stations <- unique(filtered_data$Station_ID)
+
+# Create a separate figure for each Station_ID
+for (station in unique_stations) {
+  station_data <- filtered_data %>%
+    filter(Station_ID == station)
+
+  station_comb_plot <- ggplot(station_data, aes(x = Date)) +
+    # WT_daily_mean as blue line underneath surface at 0m
+    geom_line(aes(y = WT_daily_mean), color= "darkblue", size= 1) +
+    # prec as bars going upward from 0
+    geom_bar(aes(y = prec / 30 * 0.60), stat = "identity", fill = "lightblue", color = "darkblue", alpha = 0.7) +
+    scale_y_continuous(
+      name = "Mean WT (m)",
+      limits = c(-0.60, 1.8),
+       breaks = seq(-0.60, 1.8, by = 0.10),
+      labels = function(x) ifelse(x > 0.15, "", sprintf("%.2f", x)),  # Format numbers with two decimal places  # Hide labels for values > 0.15
+      sec.axis = sec_axis(~ . * 60, name = "Precipitation (mm)", breaks = seq(0, 110, 10))
+    ) +
+    labs(title = paste("Mean WT and precipitation per day during growth season 2021 for", station),
+         x = "Date", y = "Mean WT") +
+    theme_minimal() +
+    theme(axis.text.x = element_text(angle = 45, hjust = 1))
+
+  # Save the plot as a PNG file
+  ggsave(filename = paste0("../figures/WT_prec_2021", station, ".png"), plot = station_comb_plot, width = 10, height = 6)
+
+  print(station_comb_plot)
+}
+```
+
+```{r}
+
+# Ensure your data frame is named clim_wt_combined
+# Filter the data for the desired time period
+filtered_data <- clim_wt_combined %>%
+  filter(Date >= as.Date("2022-05-01") & Date <= as.Date("2022-09-30"))
+
+# Get unique Station_IDs
+unique_stations <- unique(filtered_data$Station_ID)
+
+# Create a separate figure for each Station_ID
+for (station in unique_stations) {
+  station_data <- filtered_data %>%
+    filter(Station_ID == station)
+
+  station_comb_plot <- ggplot(station_data, aes(x = Date)) +
+    # WT_daily_mean as blue line underneath surface at 0m
+    geom_line(aes(y = WT_daily_mean), color= "darkblue", size= 1) +
+    # prec as bars going upward from 0
+    geom_bar(aes(y = prec / 30 * 0.60), stat = "identity", fill = "lightblue", color = "darkblue", alpha = 0.7) +
+    scale_y_continuous(
+      name = "Mean WT (m)",
+      limits = c(-0.60, 1.150),
+       breaks = seq(-0.60, 1.150, by = 0.10),
+      labels = function(x) ifelse(x > 0.15, "", sprintf("%.2f", x)),  # Format numbers with two decimal places  # Hide labels for values > 0.15
+      sec.axis = sec_axis(~ . * 60, name = "Precipitation (mm)", breaks = seq(0, 80, 10))
+    ) +
+    labs(title = paste("Mean WT and precipitation per day during growth season 2022 for", station),
+         x = "Date", y = "Mean WT") +
+    theme_minimal() +
+    theme(axis.text.x = element_text(angle = 45, hjust = 1))
+
+  # Save the plot as a PNG file
+  ggsave(filename = paste0("../figures/WT_prec_2022", station, ".png"), plot = station_comb_plot, width = 10, height = 6)
+
+  print(station_comb_plot)
+}
+```
+
+```{r}
+
+# Ensure your data frame is named clim_wt_combined
+# Filter the data for the desired time period
+filtered_data <- clim_wt_combined %>%
+  filter(Date >= as.Date("2023-05-01") & Date <= as.Date("2023-09-30"))
+
+# Get unique Station_IDs
+unique_stations <- unique(filtered_data$Station_ID)
+
+# Create a separate figure for each Station_ID
+for (station in unique_stations) {
+  station_data <- filtered_data %>%
+    filter(Station_ID == station)
+
+  station_comb_plot <- ggplot(station_data, aes(x = Date)) +
+    # WT_daily_mean as blue line underneath surface at 0m
+    geom_line(aes(y = WT_daily_mean), color= "darkblue", size= 1) +
+    # prec as bars going upward from 0
+    geom_bar(aes(y = prec / 30 * 0.60), stat = "identity", fill = "lightblue", color = "darkblue", alpha = 0.7) +
+    scale_y_continuous(
+      name = "Mean WT (m)",
+      limits = c(-0.60, 0.8),
+       breaks = seq(-0.60, 0.8, by = 0.10),
+      labels = function(x) ifelse(x > 0.15, "", sprintf("%.2f", x)),  # Format numbers with two decimal places  # Hide labels for values > 0.15
+      sec.axis = sec_axis(~ . * 60, name = "Precipitation (mm)", breaks = seq(0, 50, 10))
+    ) +
+    labs(title = paste("Mean WT and precipitation per day during growth season 2023 for", station),
+         x = "Date", y = "Mean WT") +
+    theme_minimal() +
+    theme(axis.text.x = element_text(angle = 45, hjust = 1))
+
+  # Save the plot as a PNG file
+  ggsave(filename = paste0("../figures/WT_prec_2023", station, ".png"), plot = station_comb_plot, width = 10, height = 6)
+
+  print(station_comb_plot)
+}
 ```
 
 ## Combine WT variables with reveg
 
 ```{r}
-wtvar <- final_variables 
+wtvar <- wt_variables 
 wtvar <- wtvar %>%  
      mutate(Name=case_when(Station_ID=='BSM1'~ 'Hoydalsmoan', 
                            Station_ID=='BSM2'~'Hoydalsmoan',
@@ -466,8 +546,8 @@ reveg_wt <- reveg_var %>%
 
 #Join the revegetation dataset with the variable datasets
 
-reveg_wt <- wtvar %>%
-   left_join(reveg_wt, by=c('Location', 'Sublocation', 'year'))
+reveg_wt <- reveg_wt %>%
+   left_join(wtvar, by=c('Location', 'Sublocation', 'year'))
 
 reveg_wt <- reveg_wt %>%
    mutate_at(c('Location','Sublocation', 'Treatment_ID', 'Treatment', 'Station_ID.y'), as.factor) %>%
@@ -476,25 +556,87 @@ reveg_wt <- reveg_wt %>%
 
 ```
 
+## Compare means and medians of Sphagnum cover
+
 ```{r}
 reveg_var %>%
   group_by(Station_ID, t_year) %>%
-  filter(Treatment=='S') %>%
-  summarise(mean = mean(Sphagnum, na.rm=TRUE),
-            se = sd(Sphagnum, na.rm= TRUE/ sqrt(n())))
+  filter(Treatment == 'S') %>%
+  summarise(
+    mean = mean(Sphagnum, na.rm = TRUE),
+    se = sd(Sphagnum, na.rm = TRUE) / sqrt(n()),
+    sd = sd(Sphagnum, na.rm = TRUE),
+    median = median(Sphagnum, na.rm = TRUE),
+    Q1 = quantile(Sphagnum, 0.25, na.rm = TRUE),  # First quartile
+    Q3 = quantile(Sphagnum, 0.75, na.rm = TRUE)   # Third quartile
+  )
+
 ```
+
+```{r}
+summary_data <- reveg_var %>%
+  group_by(Treatment, t_year) %>%
+  summarise(
+    mean = mean(Sphagnum, na.rm = TRUE),
+    sd = sd(Sphagnum, na.rm = TRUE),
+    se = sd(Sphagnum, na.rm = TRUE) / sqrt(n()),
+    median = median(Sphagnum, na.rm = TRUE),
+    Q1 = quantile(Sphagnum, 0.25, na.rm = TRUE),  # First quartile
+    Q3 = quantile(Sphagnum, 0.75, na.rm = TRUE)   # Third quartile
+  )
+
+summary_data
+```
+
+```{r}
+
+# Plot individual points, mean, median, SE, and quartiles
+median_plot <- ggplot(reveg_var, aes(x = t_year)) +
+  geom_point(aes(y = Sphagnum, color = Treatment), position = position_jitter(width = 0.2), alpha = 0.5) +  # Points for individual data
+  geom_errorbar(data = summary_data, aes(x = t_year, ymin = mean - se, ymax = mean + se), width = 0.2, color = "blue") +  # SE error bars
+  geom_errorbar(data = summary_data, aes(x = t_year, ymin = mean - sd, ymax = mean + sd), width = 0.2, color = "orange") +  # SE error bars
+  geom_point(data = summary_data, aes(x = t_year, y = mean), color = "blue", size = 3, shape = 21, fill = "blue") +  # Mean points
+  geom_point(data = summary_data, aes(x = t_year, y = median), color = "red", size = 3, shape = 21, fill = "red") +  # Median points
+  geom_errorbar(data = summary_data, aes(x = t_year, ymin = Q1, ymax = Q3), width = 0.2, color = "red") +  # Quartile range
+  labs(x = "Year", y = "Sphagnum cover", title = "Sphagnum Cover over Time with Mean, Median, SE, and Quartiles") +
+  facet_wrap(~Treatment) +  # Facet by Treatment, displaying side by side
+  theme_minimal()
+
+ggsave(filename = '../figures/meansmedian.png', plot = median_plot)
+median_plot
+```
+
+When comparing means with medians, the means mostly lies slightly higher than the medians, with much narrower SE than the quartiles, with the exception of S and R year3, where the median is higher than the mean.
 
 ```{r}
 reveg_var %>%
   group_by(Location, t_year, Treatment) %>%
-  filter(Treatment==(c('S', 'R'))) %>%
-  summarise(mean = mean(Sphagnum, na.rm=TRUE),
-            se = sd(Sphagnum, na.rm= TRUE/ sqrt(n())))
+  summarise(mean = mean(Sphagnum, na.rm = TRUE),
+    se = sd(Sphagnum, na.rm = TRUE) / sqrt(n()),
+    sd = sd(Sphagnum, na.rm = TRUE),
+    median = median(Sphagnum, na.rm = TRUE),
+    Q1 = quantile(Sphagnum, 0.25, na.rm = TRUE),  # First quartile
+    Q3 = quantile(Sphagnum, 0.75, na.rm = TRUE)   # Third quartile
+  )
+```
+
+```{r}
+reveg_var %>%
+  group_by(Location, Sublocation, t_year, Treatment) %>%
+  summarise(mean = mean(Sphagnum, na.rm = TRUE),
+    se = sd(Sphagnum, na.rm = TRUE) / sqrt(n()),
+    sd = sd(Sphagnum, na.rm = TRUE),
+    median = median(Sphagnum, na.rm = TRUE),
+    Q1 = quantile(Sphagnum, 0.25, na.rm = TRUE),  # First quartile
+    Q3 = quantile(Sphagnum, 0.75, na.rm = TRUE)   # Third quartile
+  )
 ```
 
 # Run brms models Sphagnum
 
-Year 3 only
+## Preparing the data
+
+Filter the data down to year 3 only
 
 ```{r}
 H1.Sph.revWT <- reveg_wt %>%
@@ -535,9 +677,23 @@ summary(H1.Sph.revWT$Sphagnum_beta / 100)
 
 #Check for missing values
 summary(H1.Sph.revWT)
-sum(is.na(H1.Sph.revWT))
 colSums(is.na(H1.Sph.revWT))
 ```
+
+Lacking some data within WT_consecutive_days_below_max and WT_total_days_below_sum for BSM1, and all for HM2.
+
+Also a small error in Station-ID for HM2, which I'll fix quickly.
+
+```{r}
+H1.Sph.revWT <- H1.Sph.revWT %>%
+  mutate(Station_ID = as.character(Station_ID),               # Convert to character
+         Station_ID = ifelse(is.na(Station_ID), "HM2", Station_ID),  # Replace NA with "HM2"
+         Station_ID = as.factor(Station_ID)) #convert back to factor
+```
+
+## Imputing missing WT values
+
+Then I'll also impute missing values for WT by using the means from nearby stations
 
 ```{r}
 # Custom function to impute missing values based on nearby stations
@@ -556,14 +712,18 @@ impute_custom <- function(data, target_column, target_station, nearby_stations) 
 }
 
 # Impute missing values for BSM-1 and HM-2
-H1.Sph.revWT.imp <- impute_custom(H1.Sph.revWT, 'WT_consecutive_days_below_max', 'BSM-1', c('BSM-2', 'BSM-3'))
-H1.Sph.revWT.imp <- impute_custom(H1.Sph.revWT.imp, 'WT_consecutive_days_below_max', 'HM-2', c('HM-1', 'HM-3'))
+H1.Sph.revWT.imp <- impute_custom(H1.Sph.revWT, 'WT_consecutive_days_below_max', 'BSM1', c('BSM2', 'BSM3'))
+H1.Sph.revWT.imp <- impute_custom(H1.Sph.revWT.imp, 'WT_consecutive_days_below_max', 'HM2', c('HM1', 'HM3'))
 
-H1.Sph.revWT.imp <- impute_custom(H1.Sph.revWT.imp, 'WT_total_days_below_sum', 'BSM-1', c('BSM-2', 'BSM-3'))
-H1.Sph.revWT.imp <- impute_custom(H1.Sph.revWT.imp, 'WT_total_days_below_sum', 'HM-2', c('HM-1', 'HM-3'))
+H1.Sph.revWT.imp <- impute_custom(H1.Sph.revWT.imp, 'WT_total_days_below_sum', 'BSM1', c('BSM2', 'BSM3'))
+H1.Sph.revWT.imp <- impute_custom(H1.Sph.revWT.imp, 'WT_total_days_below_sum', 'HM2', c('HM1', 'HM3'))
+
+H1.Sph.revWT.imp <- impute_custom(H1.Sph.revWT.imp, 'WT_mean', 'HM2', c('HM1', 'HM3'))
 
 colSums(is.na(H1.Sph.revWT.imp))
 ```
+
+## brms model H1
 
 ```{r}
 init_fun <- function() list(
@@ -573,18 +733,17 @@ init_fun <- function() list(
 ```
 
 ```{r}
-# H1.Sph.beta.revWT<-   brm(Sphagnum_beta/100 ~ Treatment + WT_total_days_below_sum + WT_consecutive_days_below_max + WT_mean + (1 | Location/Sublocation),
-#                    data=H1.Sph.revWT,
-#                  Beta(link = "logit", link_phi = "log"),
-#                 chains = 4, # nb of chains
-#                  iter = 4000, # nb of iterations, including burnin
-#                  warmup = 1000, # burnin
-#                  thin = 3,
-#                 control = list(adapt_delta = 0.99, max_treedepth = 15))
+H1.Sph.beta.revWT<-   brm(Sphagnum_beta/100 ~ Treatment + WT_total_days_below_sum + WT_consecutive_days_below_max + WT_mean + (1 | Location/Sublocation),
+                   data=H1.Sph.revWT.imp,
+                 Beta(link = "logit", link_phi = "log"),
+                chains = 4, # nb of chains
+                 iter = 4000, # nb of iterations, including burnin
+                 warmup = 1000, # burnin
+                control = list(adapt_delta = 0.99, max_treedepth = 15))
               
 
 #saveRDS(H1.Sph.beta.revWT, 'RDS-files/H1.Sph.beta.revWT.RDS')
-readRDS(H1.Sph.beta.revWT, 'RDS-files/H1.Sph.beta.revWT.RDS')
+#readRDS(H1.Sph.beta.revWT, 'RDS-files/H1.Sph.beta.revWT.RDS')
 ```
 
 ```{r}
@@ -593,6 +752,21 @@ summary(H1.Sph.beta.revWT)
 
 ```{r}
 plot(H1.Sph.beta.revWT)
+
+```
+
+```{r}
+# Open a PNG device
+png("chain_convergence.png", width = 800, height = 600)
+
+# Capture the plots generated by `plot()`
+plots <- plot(H1.Sph.beta.revWT)
+
+# Use grid.arrange to arrange the plots
+grid.arrange(grobs = plots)
+
+# Close the device
+dev.off()
 ```
 
 ```{r}
@@ -605,40 +779,18 @@ print(r2)
 pp_check(H1.Sph.beta.revWT, ndraws = 100, type = 'dens_overlay')
 ```
 
+## brms model H3
+
 ```{r}
-H1.Sph.beta.revWT.imp<-   brm(Sphagnum_beta/100 ~ Treatment + WT_total_days_below_sum + WT_consecutive_days_below_max + WT_mean + (1 | Location/Sublocation),
+H3.Sph.beta.revWT<-   brm(Sphagnum_beta/100 ~ WT_total_days_below_sum + WT_consecutive_days_below_max + WT_mean + (1 | Location/Sublocation),
                    data=H1.Sph.revWT.imp,
                  Beta(link = "logit", link_phi = "log"),
                 chains = 4, # nb of chains
                  iter = 4000, # nb of iterations, including burnin
                  warmup = 1000, # burnin
-                 thin = 3,
-                control = list(adapt_delta = 0.99, max_treedepth = 15))
+                control = list(adapt_delta = 0.99, max_treedepth = 15),
                 init = init_fun
-
-saveRDS(H1.Sph.beta.revWT.imp, 'RDS-files/H1.Sph.beta.revWT.imp.RDS')
-#readRDS(H1.Sph.beta, 'RDS-files/H1.Sph.beta.RDS')
-```
-
-```{r}
-summary(H1.Sph.beta.revWT.imp)
-```
-
-```{r}
-pp_check(H1.Sph.beta.revWT.imp, ndraws = 100, type = 'dens_overlay')
-```
-
-```{r}
-H3.Sph.beta.revWT.imp<-   brm(Sphagnum_beta/100 ~ WT_total_days_below_sum + WT_consecutive_days_below_max + WT_mean + (1 | Location/Sublocation),
-                   data=H1.Sph.revWT.imp,
-                 Beta(link = "logit", link_phi = "log"),
-                chains = 4, # nb of chains
-                 iter = 4000, # nb of iterations, including burnin
-                 warmup = 1000, # burnin
-                 thin = 3,
-                control = list(adapt_delta = 0.99, max_treedepth = 15))
-                init = init_fun
-
+)
 # saveRDS(H3.Sph.beta.revWT.imp, 'RDS-files/H3.Sph.beta.revWT.imp.RDS')
 readRDS(H3.Sph.beta.revWT.imp, 'RDS-files/H3.Sph.beta.revWT.imp.RDS')              
 ```
@@ -650,6 +802,8 @@ summary(H3.Sph.beta.revWT.imp)
 ```{r}
 pp_check(H3.Sph.beta.revWT.imp, ndraws = 100, type = 'dens_overlay')
 ```
+
+# Compare the models
 
 ```{r}
 # Generate predictions from the models
@@ -680,15 +834,43 @@ loo_compare(loo_H1, loo_H3)
 
 ```{r}
 # Create the pp_check plot
-ppc_H1 <- pp_check(H1.Sph.beta.revWT.imp, ndraws = 100, type = 'dens_overlay')
+ppc_H1 <- pp_check(H1.Sph.beta.revWT, ndraws = 100, type = 'dens_overlay')
 
 # Add axis labels
 ppc_H1 <- ppc_H1 + labs(x = "Proportion of Sphagnum cover", y = "Density")
 
 # Save the plot to a file
-ggsave(filename = '../figures/ppc_H1.revWT.imp.png', plot = ppc_H1)
+ggsave(filename = '../figures/ppc_H1.revWT.png', plot = ppc_H1)
 ppc_H1
 ```
+
+## brms model H3 Sphagnum treatment only
+
+Testing the water table variables when only including Sphagnum treatment
+
+```{r}
+
+H3.Sph.beta.revWT_S<-   brm(Sphagnum_beta/100 ~ WT_total_days_below_sum + WT_consecutive_days_below_max + WT_mean + (1 | Location/Sublocation),
+                   data=H1.Sph.revWT.imp %>% filter(Treatment=="S"),
+                 Beta(link = "logit", link_phi = "log"),
+                chains = 4, # nb of chains
+                 iter = 4000, # nb of iterations, including burnin
+                 warmup = 1000, # burnin
+                control = list(adapt_delta = 0.99, max_treedepth = 15))
+
+ saveRDS(H3.Sph.beta.revWT_S, 'RDS-files/H3.Sph.beta.revWT_S.RDS')
+readRDS(H3.Sph.beta.revWT_S, 'RDS-files/H3.Sph.beta.revWT_S.RDS')  
+```
+
+```{r}
+summary(H3.Sph.beta.revWT_S)
+```
+
+the WT variables are still not significant when looking at only S treatments. I thought it would be, considering the great difference in the variable values at VSM-1 and the response value compared to the other sublocations.
+
+The model is only using the WT values from year 3, though...
+
+## Create plot of posterior distributions
 
 ```{r}
 # Extract posterior samples
@@ -734,3 +916,142 @@ ridge_plot
 ```
 
 Running any interaction models are definitely too complex for the data (I've tested, with models not converging and lots of warnings).
+
+# New model with WT as random variable
+
+As WT isn't coming through as significant, although I think it should, I'm starting to think the structure of the models are wrong.
+
+I truly only want to test Sphagnum cover over treatment, that is the experiment. WT is only something that is controlled for, as hydrology is always considered an important factor for Sphagnum development.
+
+The problem is the inclusion of the nested structure, it might actually "soak up" all the variation between Location/Sublocation, and all variation within WT would be on a Sublocation-level. I think that I either need to drop another level of the nesting-structure or I would need to include WT as a random variable.
+
+I got a suggestion of including it as a random slope. The structure of the random variable would then be e.g. WT_mean\|Location/Sublocation or WT_mean\|Location. I'm not sure if I should include Sublocation then.
+
+```{r}
+mod3 <- brm(Sphagnum_beta / 100 ~ Treatment + (WT_mean | Location/Sublocation),
+    data = H1.Sph.revWT.imp,
+    family = Beta(link = "logit", link_phi = "log"), 
+    chains = 4, 
+    iter = 4000, 
+    warmup = 1000, 
+    control = list(adapt_delta = 0.99, max_treedepth = 15),
+    save_pars = save_pars(all = TRUE))
+```
+
+```{r}
+summary(mod3)
+```
+
+Testing then without Treatment, on only S data...
+
+```{r}
+mod4 <- brm(Sphagnum_beta / 100 ~ 1 + (WT_mean | Location/Sublocation),
+    data = H1.Sph.revWT.imp %>% filter(Treatment=="S"),
+    family = Beta(link = "logit", link_phi = "log"), 
+    chains = 4, 
+    iter = 4000, 
+    warmup = 1000, 
+    control = list(adapt_delta = 0.99, max_treedepth = 15))
+```
+
+```{r}
+summary(mod4)
+```
+
+This looks more or less similar to the previous model (mod3), indicating that the random slope and intercept doesn't change with adding a fixed effect. The same
+
+```{r}
+mod5 <- brm(Sphagnum_beta / 100 ~ 1 + (WT_mean | Location/Sublocation),
+    data = H1.Sph.revWT.imp,
+    family = Beta(link = "logit", link_phi = "log"), 
+    chains = 4, 
+    iter = 4000, 
+    warmup = 1000, 
+    control = list(adapt_delta = 0.99, max_treedepth = 15),
+    save_pars = save_pars(all = TRUE))
+```
+
+```{r}
+summary(mod5)
+```
+
+## Compare the models (mod3 and mod5)
+
+```{r}
+loo_mod3 <- loo(mod3)
+loo_mod5 <- loo(mod5)
+
+loo_compare(loo_mod3, loo_mod5)
+```
+
+```         
+Warning: Found 1 observations with a pareto_k > 0.7 in model 'mod3'. We recommend to set 'moment_match = TRUE' in order to perform moment matching for problematic observations.
+```
+
+Checking with Bayesian R-squared to compare variance.
+
+```{r}
+# Calculate Bayesian R-squared for both models
+bayes_R2_mod3 <- bayes_R2(mod3)
+bayes_R2_mod5 <- bayes_R2(mod5)
+
+print(bayes_R2_mod3)
+print(bayes_R2_mod5)
+```
+
+```{r}
+bayes_factor(mod3, mod5)
+```
+
+Bayes Factor seems very unstable, with extreme values, so I'm going to keep up with LOOCV.
+
+```{r}
+plot(mod3)
+```
+
+```{r}
+# Open a PNG device for the first set of plots
+png("chain_convergence_part1.png", width = 800, height = 600)
+
+# Capture the plots generated by `plot()`
+plots <- plot(mod3)
+
+# Arrange the first half of the plots
+grid.arrange(grobs = plots[1:2])  # Assuming 4 plots in total, split into 2 parts
+
+# Close the device
+dev.off()
+
+# Open a PNG device for the second set of plots
+png("chain_convergence_part2.png", width = 800, height = 600)
+
+# Arrange the second half of the plots
+grid.arrange(grobs = plots[3:4])  # The remaining plots
+
+# Close the device
+dev.off()
+```
+
+```{r}
+# Create the MCMC plot
+mcmc_plot_mod3 <- mcmc_plot(mod3)
+
+# Save the plot as a PNG file
+ggsave(filename = '../figures/mcmc_plot_mod3.png', plot = mcmc_plot_mod3)
+
+```
+
+```{r}
+#Create a trace plot with the main parameters
+
+parameters <- tidybayes::get_variables(mod3)
+print(parameters)
+
+#I want to include: "b_Intercept", "b_TreatmentS", "b_TreatmentM", "sd_Location__Intercept"  , "sd_Location__WT_mean", "sd_Location:Sublocation__Intercept", "sd_Location:Sublocation__WT_mean", "phi"
+
+# Create the trace plot for specific main parameters
+trace_plot_mod3<- mcmc_trace(mod3, pars = c("b_Intercept", "b_TreatmentS", "b_TreatmentM", "sd_Location__Intercept"  , "sd_Location__WT_mean", "sd_Location:Sublocation__Intercept", "sd_Location:Sublocation__WT_mean", "phi"))  # Example parameters
+
+
+ggsave(filename = '../figures/trace_plot_mod3.png', plot=trace_plot_mod3)
+```

@@ -103,7 +103,7 @@ The data from HM1 seems correct, with varied values throughout the time period a
 
 ## Filter data for the growth season (May to October)
 
-I only want to include the data for the growth season. I'm including all of May and all of September for now (except for 2023, where we cut the data to end of August, as we retrieved the water loggers in the beginning of September). Maybe May needs to be shortened to mid, but lets look at the data first. Then we avoid the 'weird' data from the winter periods. I'm not really that interested in the winter time data anyways.
+I only want to include the data for the growth season. I'm including all of May and all of September for now (except for 2023, where we cut the data to end of August, as we retrieved the water loggers in the beginning of September). Maybe May needs to be shortened to mid, but lets look at the data first. Then we avoid the more difficult data from the winter periods. I'm not really that interested in the winter time data anyways.
 
 ```{r}
 wt_season <- wt_all %>%     
