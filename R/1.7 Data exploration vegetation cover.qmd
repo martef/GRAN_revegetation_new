@@ -36,10 +36,11 @@ I've seen that there is a need for some cleaning within the plant functional gro
 #Renaming and combining several of the field groups into more coherent functional groups:
 
 reveg_var <- reveg_var %>%
-  rename(Liverworts = Livermosses, Rushes = Sedges, Evergreens = Heathers) %>% #rename misnamed groups
-  mutate(Shrubs_Trees = Trees + Bushes + Bet_nan,       # combine Trees, Bushes, and Bet_nan into Shrubs_Trees
-         Carex = Carex + Rhynchospora,                   # join Rhyncospora into Carex
-         Herbs = Herbs + Oxycoccus + Drosera)    %>%       # join Oxycoccus and Drosera into Herbs
+  rename(Liverworts = Livermosses, Rushes = Sedges, Ericoids = Heathers) %>% #rename misnamed groups
+  mutate(Shrubs_Trees = Trees + Bushes + Bet_nan,   # combine Trees, Bushes, and Bet_nan into Shrubs_Trees
+         Carex = Carex + Rhynchospora,       # join Rhyncospora into Carex
+         Herbs = Herbs + Oxycoccus + Drosera, # join Oxycoccus and Drosera into Herbs
+         Other_mosses = Other_mosses + Racomitrium)    %>%       
  select(-Trees, -Bushes, -Bet_nan, -Rhynchospora, -Oxycoccus, -Drosera)  %>% # remove the old columns
   relocate(Shrubs_Trees, .after = Seedlings)  
 ```
@@ -110,6 +111,26 @@ reveg_var%>%
 ```
 
 7 plots have higher ground cover than 120%. Most of this is due to overlap with mulch, and I have gone through the photos of each and double checked and altered any cover percentages that seemed a little wrong. All ok now.
+
+```{r}
+reveg_var%>%
+  dplyr::select(c(Location, Sublocation, Block, Treatment, Treatment_ID, Sphagnum, Mulch, Bare_peat, t_year, Other_veg, Total_veg, Field, Veg_Ground, Tot_Ground))%>%
+  group_by(Treatment, t_year) %>%
+  summarise(Other_veg_mean = mean(Other_veg),
+            Other_veg_sd = sd(Other_veg),
+            Other_veg_max = max(Other_veg),
+            Field_mean = mean(Field),
+            Field_sd = sd(Field),
+            Field_max = max(Field),
+            Veg_Ground_mean = mean(Veg_Ground),
+            Veg_Ground_sd = sd(Veg_Ground),
+            Veg_Ground_max = max(Veg_Ground),
+            Tot_Ground_mean = mean(Tot_Ground),
+            Tot_Ground_sd = sd(Tot_Ground),
+            Tot_Ground_max = max(Tot_Ground),
+            Tot_Veg_mean = mean(Total_veg),
+             total_N = n()) 
+```
 
 ## Exploring specific species groups
 
@@ -332,6 +353,30 @@ print(combined_mean_cover)
 
 The reference plots have a high cover of Sphagnum (about 71% mean), and a decent cover of Narthecium, evergreens (mostly heather) and Trichophorum. There's also some litter (about 14%ish), while Eriopherum covers only ca. 3%)
 
+```{r}
+summary_data <- reveg_var %>%
+  filter(Treatment == "M", t_year == 3) %>%    # Filter for Treatment "M" and t_year 3
+  select(Sphagnum:Shrubs_Trees) %>%                   # Select the vegetation columns
+  summarise_all(mean, na.rm = TRUE) %>%         # Summarize each vegetation group (summing their values)
+  gather(Vegetation_Group, Total_Cover) %>%    # Gather the vegetation columns into key-value pairs
+  arrange(desc(Total_Cover))                   # Arrange the groups from largest to smallest
+
+# View the summary
+print(summary_data)
+```
+
+```{r}
+summary_data <- reveg_var %>%
+  filter(Treatment == "S", t_year == 3) %>%    # Filter for Treatment "M" and t_year 3
+  select(Sphagnum:Shrubs_Trees) %>%                   # Select the vegetation columns
+  summarise_all(mean, na.rm = TRUE) %>%         # Summarize each vegetation group (summing their values)
+  gather(Vegetation_Group, Total_Cover) %>%    # Gather the vegetation columns into key-value pairs
+  arrange(desc(Total_Cover))                   # Arrange the groups from largest to smallest
+
+# View the summary
+print(summary_data)
+```
+
 The natural cover of Eriopherum is quite low, which is interesting to compare to the experimental plots, as this is a plant that increases rapidly in newly rewetted peatlands. In the experimental plots:
 
 ```{r}
@@ -411,22 +456,20 @@ There is an interesting increase in heathers within the Sphagnum treatments. Thi
 
 plot_SP <- reveg_var %>%
   filter(!is.na(Sphagnum)) %>%  # Exclude NA values in the Sphagnum column
-  mutate(Treatment = factor(Treatment, levels = c("C", "M", "S", "R")),
-         Treatment = fct_recode(Treatment, "M&S" = "S")) %>%  
-# Rearrange Treatment levels
-  ggplot(aes(x = Treatment, y = Sphagnum, color = as.factor(t_year), fill=as.factor(t_year), alpha=0.8)) +   
-  geom_violin(scale = "width", width= 0.8) +   
-  geom_point(pch = 21, size=1, position = position_jitterdodge())+
+  mutate(Treatment = factor(Treatment, levels = c("C", "M", "S", "R"))) %>% # Rearrange Treatment levels
+  ggplot(aes(x = Treatment, y = Sphagnum, color = as.factor(t_year), fill=as.factor(t_year))) +   
+  geom_violin(scale = "width", width= 0.8, alpha=0.7) +   
+  geom_point(pch = 21, size=1, position = position_jitterdodge()) +
   ylab("Sphagnum cover") +
   labs(fill= "Growth seasons since treatment") +
   theme_minimal() +
-   scale_fill_brewer(palette="Dark2") +
+  scale_fill_brewer(palette="Dark2") +
   scale_color_brewer(palette="Dark2") +
-  guides(color = "none", alpha = "none")
+  guides(color = "none")
 
 plot_SP
 
-ggsave(plot_SP, filename='../figures/violinplot_SP.png')
+ggsave(plot_SP, filename='../figures/violinplot_SP.png', width = 10, height = 6, units = "in")
 ```
 
 ```{r}
@@ -452,10 +495,9 @@ ggsave(plot_TV, filename='../figures/violinplot_TV.png')
 ```{r}
 plot_OV <- reveg_var %>%
   filter(!is.na(Other_veg)) %>%  # Exclude NA values in the Sphagnum column
-   mutate(Treatment = factor(Treatment, levels = c("C", "M", "S", "R")),
-          Treatment = fct_recode(Treatment, "M&S" = "S")) %>% # Rearrange Treatment levels
-  ggplot(aes(x = Treatment, y = Other_veg, color = as.factor(t_year), fill=as.factor(t_year), alpha=0.8)) +   
-  geom_violin(scale = "width", width= 0.8) +   
+   mutate(Treatment = factor(Treatment, levels = c("C", "M", "S", "R")))  %>% 
+  ggplot(aes(x = Treatment, y = Other_veg, color = as.factor(t_year), fill=as.factor(t_year))) +   
+  geom_violin(scale = "width", width= 0.8, alpha=0.7) +   
   geom_point(pch = 21, size=1, position = position_jitterdodge())+
   ylab("Total cover of other vegetation") +
   labs(fill= "Growth seasons since treatment") +
@@ -466,7 +508,7 @@ plot_OV <- reveg_var %>%
 
 plot_OV
 
-ggsave(plot_OV, filename='../figures/violinplot_OV.png')
+ggsave(plot_OV, filename='../figures/violinplot_OV.png', width = 10, height = 6, units = "in")
 ```
 
 ## 
@@ -601,5 +643,56 @@ reveg_wide <- reveg_wide %>%
 reveg_wide
 ```
 
-\
-\
+##  Plots with M treatment with already Sphagnum from the start
+
+```{r}
+plots_with_sphagnum <- reveg_var %>%
+  filter(Treatment == "M", Sphagnum > 0, t_year == 0) %>%
+ select(Location, Sublocation, Block, Treatment_ID) %>%
+  distinct()
+
+# Filter the whole dataset by joining with the specific combinations
+reveg_var_MSph <- reveg_var %>%
+  inner_join(plots_with_sphagnum, by = c("Location", "Sublocation", "Block", "Treatment_ID")) %>%
+  filter(Treatment == "M")
+
+```
+
+```{r}
+plot_SP_MSph <- reveg_var_MSph %>%
+  filter(!is.na(Sphagnum)) %>%  # Exclude NA values in the Sphagnum column
+  mutate(Treatment = factor(Treatment, levels = c("C", "M", "S", "R"))) %>% # Rearrange Treatment levels
+  ggplot(aes(x = Treatment, y = Sphagnum, color = as.factor(t_year), fill=as.factor(t_year))) +   
+  geom_violin(scale = "width", width= 0.8, alpha=0.7) +   
+  geom_point(pch = 21, size=1, position = position_jitterdodge()) +
+  ylab("Sphagnum cover") +
+  labs(fill= "Growth seasons since treatment") +
+  theme_minimal() +
+  scale_fill_brewer(palette="Dark2") +
+  scale_color_brewer(palette="Dark2") +
+  guides(color = "none")
+
+plot_SP_MSph
+```
+
+```{r}
+# Function to calculate standard error
+se <- function(x) {
+  sd(x) / sqrt(length(x))
+}
+
+# Filter for t_year == 3 and calculate summary statistics
+summary_stats <- reveg_var_MSph %>%
+  filter(t_year == 3) %>%
+  summarise(
+    mean_Sphagnum = mean(Sphagnum, na.rm = TRUE),
+    median_Sphagnum = median(Sphagnum, na.rm = TRUE),
+    se_Sphagnum = se(Sphagnum),
+    max_Sphagnum = max(Sphagnum, na.rm = TRUE)
+  )
+
+# View the summary statistics
+summary_stats
+```
+
+##  

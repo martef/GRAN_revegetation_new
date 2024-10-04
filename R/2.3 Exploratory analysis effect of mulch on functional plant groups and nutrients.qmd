@@ -56,14 +56,14 @@ reveg_var <- reveg_var %>%
 ```{r}
 # Pivoting functional plant groups
 reveg_var_long_fg <- reveg_var %>%
-  select(c(Location:Treatment_ID, t_year:Dead_wood)) %>%
+  select(c(Location:Treatment, t_year:Dead_wood)) %>%
   pivot_longer(cols = Sphagnum:Dead_wood, 
                names_to = 'functional_group', 
                values_to = 'cover')
 
 # Pivoting nutrients
 reveg_var_long_nutrients <- reveg_var %>%
-  select(c(Location:Treatment_ID, t_year, NO3_N:Cd)) %>%
+  select(c(Location:Treatment, t_year, NO3_N:Cd)) %>%
   pivot_longer(cols = NO3_N:Cd, 
                names_to = 'nutrients', 
                values_to = 'level')
@@ -84,7 +84,12 @@ reveg_var_long <- reveg_var_long %>%
 #Subsetting functional vegetation groups to only data for year 3
 reveg_fg_y3 <- reveg_var %>%
   filter(t_year=='3') %>%
-  select(c(Location:Treatment_ID, Sphagnum:Dead_wood))
+  select(c(Location:Treatment, Sphagnum:Dead_wood))
+
+#Subsetting functional vegetation groups to only data for year 0
+reveg_fg_y0 <- reveg_var %>%
+  filter(t_year=='0') %>%
+  select(c(Location:Treatment, Sphagnum:Dead_wood))
 
 #Subsetting to only include C and M
 reveg_fg_y3_CM <- reveg_fg_y3 %>%
@@ -93,11 +98,135 @@ reveg_fg_y3_CM <- reveg_fg_y3 %>%
 #Subsetting nutrients to only the year with data (year 0)
 reveg_nut <- reveg_var %>%
   filter(t_year=='0') %>%
-  select(c(Location:Treatment_ID, NO3_N:Cd))
+  select(c(Location:Treatment, NO3_N:Cd))
 
 #Join the two datasets
-reveg_var_pca <- reveg_fg_y3_CM %>%
+reveg_var_pca_nut <- reveg_fg_y3_CM %>%
   full_join(reveg_nut, by = c('Location', 'Sublocation', 'Block', 'Treatment', 'Treatment_ID'))
+
+#Join the two datasets, but now including all treatments
+reveg_var_pca_nut_all <- reveg_fg_y3 %>%
+  full_join(reveg_nut, by=c('Location', 'Sublocation', 'Block', 'Treatment', 'Treatment_ID'))
+```
+
+## Density ridge plots FTGs
+
+```{r}
+#Subset to a set of the more interesting FTGs
+reveg_var_long_fg_sub <- reveg_var_long_fg %>%
+  filter(functional_group %in% c("Trichophorum", "Sphagnum", "Polytrichum", "Other_mosses", "Narthecium", "Liverworts", "Lichen", "Evergreens", "Eriopherum"))
+
+# Reverse the order of the functional_group
+reveg_var_long_fg_sub <- reveg_var_long_fg_sub %>%
+  mutate(functional_group=factor(functional_group, levels = rev(c("Trichophorum", "Sphagnum", "Polytrichum", "Other_mosses", "Narthecium", "Liverworts", "Lichen", "Evergreens", "Eriopherum"))),
+                              Treatment = factor(Treatment, 
+                            levels = c("C", "M", "S", "R")))
+
+
+
+
+#Subset to year 0 and to year 3
+reveg_var_long_fg_sub0 <- reveg_var_long_fg_sub %>%
+  filter(t_year=='0')
+
+reveg_var_long_fg_sub3 <- reveg_var_long_fg_sub %>%
+  filter(t_year=='3')
+
+
+```
+
+```{r}
+denplot_FTG0 <- ggplot(reveg_var_long_fg_sub0, aes(x = cover, y = functional_group, fill = functional_group)) + 
+  geom_density_ridges(
+    quantile_lines = TRUE, scale = 1, alpha = 0.9,
+    vline_width = 0.2, vline_color = "black", rel_min_height = 0.01) +
+  theme_minimal() +
+  labs(y = "FTG", x = "Cover") +
+  scale_fill_brewer(palette="PuOr") +
+   facet_wrap(~ Treatment) +  # Facet by Treatment
+  theme(legend.position = "none",
+  axis.title.y = element_text(margin = margin(r = 15)),
+   axis.title.x = element_text(margin = margin(t = 10)))+ # Adjust margin of y-xis title
+xlim(0, NA)  # Set the lower bound of x-axis to 0 and leave the upper bound automatic
+
+ggsave(denplot_FTG0, filename='../figures/densityplot_FTG0.png')
+print(denplot_FTG0)
+```
+
+```{r}
+
+denplot_FTG3 <- ggplot(reveg_var_long_fg_sub3, aes(x = cover, y = functional_group, fill = functional_group)) + 
+  geom_density_ridges(
+    quantile_lines = TRUE, scale = 1, alpha = 0.9,
+    vline_width = 0.2, vline_color = "black", rel_min_height = 0.01) +
+  theme_minimal() +
+  labs(y = "FTG", x = "Cover") +
+  scale_fill_brewer(palette="PuOr") +
+   facet_wrap(~ Treatment) +  # Facet by Treatment
+  theme(legend.position = "none",
+  axis.title.y = element_text(margin = margin(r = 15)),
+   axis.title.x = element_text(margin = margin(t = 10)))+ # Adjust margin of y-xis title
+xlim(0, NA)  # Set the lower bound of x-axis to 0 and leave the upper bound automatic
+
+ggsave(denplot_FTG3, filename='../figures/densityplot_FTG3.png')
+print(denplot_FTG3)
+```
+
+```{r}
+denplot_FTG3_2 <- ggplot(reveg_var_long_fg_sub3, aes(x = cover, y = Treatment, fill = Treatment)) + 
+  geom_density_ridges(
+    quantile_lines = TRUE, scale = 1, alpha = 0.9,
+    vline_width = 0.2, vline_color = "black", rel_min_height = 0.01) +
+  theme_minimal() +
+  labs(y = "Plant functional type", x = "Cover") +
+  scale_fill_brewer(palette="PuOr") +
+   facet_wrap(~ functional_group, scales = "free_x") +  # Facet by FTGs, allow different x-axis for each
+  theme(legend.position = "none",
+  axis.title.y = element_text(margin = margin(r = 15)),
+   axis.title.x = element_text(margin = margin(t = 10)))+ # Adjust margin of y-xis title
+xlim(0, NA)  # Set the lower bound of x-axis to 0 and leave the upper bound automatic
+
+ggsave(denplot_FTG3_2, filename='../figures/densityplot_FTG3_2.png')
+print(denplot_FTG3_2)
+```
+
+## Density ridge plot nutrients
+
+```{r}
+
+#Density plot per location
+denplot_loc <- 
+  ggplot(reveg_var_long_nutrients, aes(x=level, y=Location, fill=Location)) + # colored filling and outline
+ geom_density_ridges(
+   quantile_lines = TRUE, scale = 5, alpha = 0.4,
+    vline_width = 0.2, vline_color = "black", rel_min_height = 0.01) +
+  scale_color_brewer(palette="Dark2") +
+  theme_minimal() +
+  theme(legend.position = 'none') +
+  facet_wrap(~ nutrients, scales = "free_x") +
+xlim(0, NA)  # Set the lower bound of x-axis to 0 and leave the upper bound automatic
+  
+print(denplot_loc)
+ggsave(denplot_loc, filename='../figures/densityplot_nutrients_location.png')
+```
+
+```{r}
+#Density plot per location
+denplot_treat <- reveg_var_long_nutrients %>%
+  filter(Treatment!="S")%>%
+  filter(Treatment!="R")%>%
+  ggplot(aes(x=level, y=Treatment, fill=Treatment)) + # colored filling and outline
+ geom_density_ridges(
+   quantile_lines = TRUE, scale = 5, alpha = 0.4,
+    vline_width = 0.2, vline_color = "black", rel_min_height = 0.01) +
+  scale_color_brewer(palette="Dark2") +
+  theme_minimal() +
+  theme(legend.position = 'none') +
+  facet_wrap(~ nutrients, scales = "free_x") +
+xlim(0, NA)  # Set the lower bound of x-axis to 0 and leave the upper bound automatic
+  
+print(denplot_treat)
+ggsave(denplot_treat, filename='../figures/densityplot_nutrients_treatment.png')
 ```
 
 ## Ordination
@@ -107,8 +236,9 @@ reveg_var_pca <- reveg_fg_y3_CM %>%
 ```{r}
 # Step 1: Prepare the Data
 # Filter out rows with any NA values in the relevant columns
-filtered_data <- reveg_var_pca %>%
-  filter(complete.cases(across(Sphagnum:Cd)))
+filtered_data <- reveg_var_pca_nut %>%
+  filter(complete.cases(across(Sphagnum:Cd))) %>%
+  select(-c(Mulch, Bare_peat, Litter, Dead_wood))
 
 # Remove columns with zero variance
 non_zero_var_columns <- filtered_data %>%
@@ -135,23 +265,27 @@ pca_loadings_scaled <- pca_loadings %>%
   mutate(across(-variables, ~ . * scaling_factor))
 
 # Create the PCA plot with separate layers for scores and loadings
+
 pca_plot <- ggplot(pca_scores, aes(x = PC1, y = PC2)) +
-  geom_point(aes(color = Location, shape = Treatment), size = 3) +
-  stat_ellipse(aes(group = Treatment, color = Treatment), type = "norm", level = 0.95) +
+  geom_point(aes(color = Treatment, shape = Location), size = 3) +
+  stat_ellipse(aes(group = Location, color = Location), type = "norm", level = 0.95) +
   geom_segment(data = pca_loadings_scaled, aes(x = 0, y = 0, xend = PC1, yend = PC2), arrow = arrow(length = unit(0.2, "cm")), color = "blue") +
   geom_text_repel(data = pca_loadings_scaled, aes(x = PC1, y = PC2, label = variables), color = "black", vjust = 1.5) +
-  labs(title = "PCA of Variable Levels by Location and Treatment",
-       x = "PC1",
-       y = "PC2") +
-  theme_minimal()
+  labs(
+       x = "PC1 (15.8%)",
+       y = "PC2 (10.4%)",
+       color = "Treatment (shapes fill) 
+       & Location (ellipses)",   # Set color legend title for Treatment
+       shape = "Location") +  # Set shape legend title for Location (points)) +
+  theme_minimal() +
+ viridis::scale_fill_viridis()
 
 # Print the plot
 print(pca_plot)
 ```
 
 ```{r}
-
-#ggsave("pca_nutrient_levels.png", plot = pca_plot, width = 10, height = 8, dpi = 300)
+ggsave(pca_plot, filename='../figures/pca_nut_fpg.png', width = 10, height = 8, dpi = 300)
 ```
 
 ```{r}
@@ -186,7 +320,7 @@ print(pca_summary_sorted_by_PC)
 ```{r}
 # Step 1: Prepare the Data
 # Filter out rows with any NA values in the relevant columns
-filtered_data_fg <- reveg_var_pca %>%
+filtered_data_fg <- reveg_var_pca_nut %>%
   filter(complete.cases(across(Sphagnum:Dead_wood)))
 
 # Step 2: Remove columns with zero variance
@@ -263,7 +397,7 @@ I want to try this again, but without Mulch and Bare peat:
 ```{r}
 # Step 1: Prepare the Data
 # Filter out rows with any NA values in the relevant columns
-filtered_data_fg2 <- reveg_var_pca %>%
+filtered_data_fg2 <- reveg_var_pca_nut %>%
   filter(complete.cases(across(Sphagnum:Dead_wood))) %>%
   select(-c(Mulch, Bare_peat, Litter, Dead_wood))
 
@@ -337,22 +471,152 @@ pca_summary3_sorted_by_PC <- pca_summary3 %>%
 print(pca_summary3_sorted_by_PC)
 ```
 
+### PCA Functional groups only (all treatments)
+
+```{r}
+# Step 1: Prepare the Data
+# Filter out rows with any NA values in the relevant columns
+filtered_data_pft <- reveg_var_pca_nut_all %>%
+  filter(complete.cases(across(Sphagnum:Dead_wood))) %>%
+  select(-c(Mulch, Bare_peat, Litter, Dead_wood))
+
+# Step 2: Remove columns with zero variance
+numeric_columns_pft <- filtered_data_pft %>%
+  select(Sphagnum:Shrubs_Trees)
+
+non_zero_var_columns_pft <- numeric_columns_pft %>%
+  select(where(~ var(.) != 0))
+
+# Update filtered_data_fg to match the rows used in PCA
+filtered_data_pft <- filtered_data_pft %>%
+  select(Location, Treatment) %>%
+  slice(which(complete.cases(numeric_columns_pft)))
+
+
+# Step 2: Perform PCA
+pca_result4 <- prcomp(non_zero_var_columns_pft, scale. = TRUE)
+
+# Step 3: Extract and Bind Scores
+# Extract PCA scores
+pca_scores4 <- as_tibble(pca_result4$x) %>%
+  bind_cols(filtered_data_pft %>% select(Location, Treatment))
+
+# Extract PCA loadings
+pca_loadings4 <- as_tibble(pca_result4$rotation, rownames = "pft")
+
+# Step 5: Scale the Loadings for Better Visualization
+scaling_factor4 <- max(abs(pca_scores4$PC1))
+pca_loadings_scaled4 <- pca_loadings4 %>%
+  mutate(across(-pft, ~ . * scaling_factor4))
+
+# Create the PCA plot with separate layers for scores and loadings
+pca_plot4 <- ggplot(pca_scores4, aes(x = PC1, y = PC2)) +
+  geom_point(aes(color = Treatment, shape = Location), size = 2) +
+  stat_ellipse(aes(group = Treatment, color = Treatment), type = "norm", level = 0.95) +
+  geom_segment(data = pca_loadings_scaled4, aes(x = 0, y = 0, xend = PC1, yend = PC2), arrow = arrow(length = unit(0.2, "cm")), color = "blue") +
+  geom_text_repel(data = pca_loadings_scaled4, aes(x = PC1, y = PC2, label = pft), color = "black", vjust = 1.5, size = 3.5, max.overlaps = Inf) +
+  labs(x = "PC1 (14.4%)",
+       y = "PC2 (10.3%)") +
+  theme_minimal() +
+viridis::scale_fill_viridis()
+
+ggsave(pca_plot4, filename='../figures/pca_pft4.png')
+
+# Print the plot
+print(pca_plot4)
+```
+
+```         
+```
+
+```{r}
+# Extract variance explained by each principal component
+variance_explained4 <- pca_result4$sdev^2 / sum(pca_result4$sdev^2)
+
+# Combine variance explained and loadings into a tibble for easy viewing
+pca_summary4 <- tibble(
+  Component = colnames(pca_result4$rotation),
+  Variance_Explained = variance_explained4
+)
+
+# Merge the variance explained with the loadings
+pca_summary4 <- pca_loadings4 %>%
+  pivot_longer(cols = -pft, names_to = "Component", values_to = "Loading") %>%
+  left_join(pca_summary4, by = "Component")
+
+# Display the PCA summary
+print(pca_summary4)
+```
+
+```{r}
+# Step 1: Prepare the Data
+# Filter out rows with any NA values in the relevant columns
+filtered_data_pft <- reveg_var_pca_nut_all %>%
+  filter(complete.cases(across(Sphagnum:Dead_wood))) %>%
+  select(-c(Mulch, Bare_peat, Litter, Dead_wood))
+
+# Step 2: Remove columns with zero variance
+numeric_columns_pft <- filtered_data_pft %>%
+  select(Sphagnum:Shrubs_Trees)
+
+non_zero_var_columns_pft <- numeric_columns_pft %>%
+  select(where(~ var(.) != 0))
+
+# Update filtered_data_fg to match the rows used in PCA
+filtered_data_pft <- filtered_data_pft %>%
+  select(Location, Treatment) %>%
+  slice(which(complete.cases(numeric_columns_pft)))
+
+
+# Step 2: Perform PCA
+pca_result4 <- prcomp(non_zero_var_columns_pft, scale. = TRUE)
+
+# Step 3: Extract and Bind Scores
+# Extract PCA scores
+pca_scores4 <- as_tibble(pca_result4$x) %>%
+  bind_cols(filtered_data_pft %>% select(Location, Treatment))
+
+# Extract PCA loadings
+pca_loadings4 <- as_tibble(pca_result4$rotation, rownames = "pft")
+
+# Step 5: Scale the Loadings for Better Visualization
+scaling_factor4 <- max(abs(pca_scores4$PC1))
+pca_loadings_scaled4 <- pca_loadings4 %>%
+  mutate(across(-pft, ~ . * scaling_factor4))
+
+# Create the PCA plot with separate layers for scores and loadings
+pca_plot4 <- ggplot(pca_scores4, aes(x = PC1, y = PC2)) +
+  geom_point(aes(color = Treatment, shape = Location), size = 2) +
+  stat_ellipse(aes(group = Treatment, color = Treatment), type = "norm", level = 0.95) +
+  geom_segment(data = pca_loadings_scaled4, aes(x = 0, y = 0, xend = PC1, yend = PC2), arrow = arrow(length = unit(0.2, "cm")), color = "blue") +
+  geom_text_repel(data = pca_loadings_scaled4, aes(x = PC1, y = PC2, label = pft), color = "black", vjust = 1.5, size = 3.5, max.overlaps = Inf) +
+  labs(x = "PC1 (14.4%)",
+       y = "PC2 (10.3%)") +
+  theme_minimal() +
+viridis::scale_fill_viridis()
+
+ggsave(pca_plot4, filename='../figures/pca_pft4.png')
+
+# Print the plot
+print(pca_plot4)
+```
+
 ### Posterior tests
 
 ```{r}
-screeplot(pca_result, type = "lines")
+screeplot(pca_result4, type = "lines")
 ```
 
 A scree plot helps visualize the proportion of variance explained by each principal component. This can help you decide how many components to retain.
 
 ```{r}
-biplot(pca_result)
+biplot(pca_result4)
 ```
 
 A biplot overlays a scatter plot of the scores of the first two principal components with the loadings of the original variables. This can help you interpret how variables contribute to the principal components.
 
 ```{r}
-scores <- pca_result$x
+scores <- pca_result4$x
 plot(scores[,1], scores[,2], xlab = "PC1", ylab = "PC2")
 ```
 
@@ -360,13 +624,13 @@ Plot the scores of the principal components to identify patterns, clusters, or o
 
 ```{r}
 library(factoextra)
-fviz_pca_var(pca_result)
+fviz_pca_var(pca_result4)
 ```
 
 Correlation circle plot: This plot shows the correlation between the original variables and the principal components, often used to interpret the results of the PCA.
 
 ```{r}
-fviz_contrib(pca_result, choice = "var", axes = 1)
+fviz_contrib(pca_result4, choice = "var", axes = 1)
 ```
 
 Contributions plot
@@ -377,6 +641,112 @@ plot(scores[,1], scores[,2], col = kmeans_result$cluster)
 ```
 
 Cluster analysis
+
+```{r}
+# Step 1: Prepare the Data
+# Filter out rows with any NA values in the relevant columns
+filtered_data_pft <- reveg_var_pca_nut_all %>%
+  filter(complete.cases(across(Sphagnum:Dead_wood))) %>%
+  select(-c(Mulch, Bare_peat, Litter, Dead_wood))
+
+# Step 2: Remove columns with zero variance
+numeric_columns_pft <- filtered_data_pft %>%
+  select(Sphagnum:Shrubs_Trees)
+
+non_zero_var_columns_pft <- numeric_columns_pft %>%
+  select(where(~ var(.) != 0))
+
+# Update filtered_data_fg to match the rows used in PCA
+filtered_data_pft <- filtered_data_pft %>%
+  select(Location, Treatment) %>%
+  slice(which(complete.cases(numeric_columns_pft)))
+
+
+# Step 2: Perform PCA
+pca_result4 <- prcomp(non_zero_var_columns_pft, scale. = TRUE)
+
+# Step 3: Extract and Bind Scores
+# Extract PCA scores
+pca_scores4 <- as_tibble(pca_result4$x) %>%
+  bind_cols(filtered_data_pft %>% select(Location, Treatment))
+
+# Extract PCA loadings
+pca_loadings4 <- as_tibble(pca_result4$rotation, rownames = "pft")
+
+# Step 5: Scale the Loadings for Better Visualization
+scaling_factor4 <- max(abs(pca_scores4$PC1))
+pca_loadings_scaled4 <- pca_loadings4 %>%
+  mutate(across(-pft, ~ . * scaling_factor4))
+
+# Create the PCA plot with separate layers for scores and loadings
+pca_plot4 <- ggplot(pca_scores4, aes(x = PC1, y = PC2)) +
+  geom_point(aes(color = Treatment, shape = Location), size = 2) +
+  stat_ellipse(aes(group = Treatment, color = Treatment), type = "norm", level = 0.95) +
+  geom_segment(data = pca_loadings_scaled4, aes(x = 0, y = 0, xend = PC1, yend = PC2), arrow = arrow(length = unit(0.2, "cm")), color = "blue") +
+  geom_text_repel(data = pca_loadings_scaled4, aes(x = PC1, y = PC2, label = pft), color = "black", vjust = 1.5, size = 3.5, max.overlaps = Inf) +
+  labs(x = "PC1",
+       y = "PC2") +
+  theme_minimal()
+
+ggsave(pca_plot4, filename='../figures/pca_pft4.png')
+
+# Print the plot
+print(pca_plot4)
+```
+
+## PCA soil nutrients only
+
+```{r}
+# Step 1: Prepare the Data
+# Filter out rows with any NA values in the relevant columns
+filtered_data_nut <- reveg_var_pca_nut %>%
+  filter(complete.cases(across(NH4_N:Cd)))
+
+# Step 2: Remove columns with zero variance
+numeric_columns_nut <- filtered_data_nut %>%
+  select(NH4_N:Cd)
+
+non_zero_var_columns_nut <- numeric_columns_nut %>%
+  select(where(~ var(.) != 0))
+
+# Update filtered_data_fg to match the rows used in PCA
+filtered_data_nut <- filtered_data_nut %>%
+  select(Location, Treatment) %>%
+  slice(which(complete.cases(numeric_columns_nut)))
+
+
+# Step 2: Perform PCA
+pca_result5 <- prcomp(non_zero_var_columns_nut, scale. = TRUE)
+
+# Step 3: Extract and Bind Scores
+# Extract PCA scores
+pca_scores5 <- as_tibble(pca_result5$x) %>%
+  bind_cols(filtered_data_nut %>% select(Location, Treatment))
+
+# Extract PCA loadings
+pca_loadings5 <- as_tibble(pca_result5$rotation, rownames = "nut")
+
+# Step 5: Scale the Loadings for Better Visualization
+scaling_factor5 <- max(abs(pca_scores5$PC1))
+pca_loadings_scaled5 <- pca_loadings5 %>%
+  mutate(across(-nut, ~ . * scaling_factor5))
+
+# Create the PCA plot with separate layers for scores and loadings
+pca_plot5 <- ggplot(pca_scores5, aes(x = PC1, y = PC2)) +
+  geom_point(aes(color = Treatment, shape = Treatment), size = 2) +
+  stat_ellipse(aes(group = Location, color = Location), type = "norm", level = 0.95) +
+  geom_segment(data = pca_loadings_scaled5, aes(x = 0, y = 0, xend = PC1, yend = PC2), arrow = arrow(length = unit(0.2, "cm")), color = "blue") +
+  geom_text_repel(data = pca_loadings_scaled5, aes(x = PC1, y = PC2, label = nut), color = "black", vjust = 1.5, size = 3.5, max.overlaps = Inf) +
+  labs(x = "PC1",
+       y = "PC2") +
+  theme_minimal() +
+  viridis::scale_fill_viridis()
+
+ggsave(pca_plot5, filename='../figures/pca_nut.png')
+
+# Print the plot
+print(pca_plot5)
+```
 
 ## Soil temperatures
 
@@ -397,7 +767,7 @@ temp %>%
        y = "Frequency")
 ```
 
-### Density plots
+### Density ridge plots
 
 ```{r}
 denplot_temp_mean <- ggplot(temp, aes(x = soil_gs_mean, y = Treatment, fill = Treatment)) + 
@@ -407,7 +777,8 @@ denplot_temp_mean <- ggplot(temp, aes(x = soil_gs_mean, y = Treatment, fill = Tr
   theme_minimal() +
   labs(y = "Treatment", x = "Soil Temperature") +
   guides(fill = guide_legend(reverse = TRUE)) +
-  scale_fill_brewer(palette="Dark2")
+  scale_fill_brewer(palette="Dark2") +
+  facet_wrap(~Location)
 
 
 #ggsave(denplot_temp, filename='../figures/densityplot_soil_temp_mean.png')
@@ -442,18 +813,4 @@ denplot_temp_min <- ggplot(temp, aes(x = soil_gs_min, y = Treatment, fill = Trea
 
 #ggsave(denplot_temp, filename='../figures/densityplot_soil_temp_mean.png')
 print(denplot_temp_min)
-```
-
-```{r}
-# H1.Sph.beta<-   brm(Sphagnum_beta/100 ~ Treatment + WT_total_days_below_sum + WT_consecutive_days_below_max + WT_mean + (1 | Location/Sublocation),
-#                    data=H1.Sph,
-#                  Beta(link = "logit", link_phi = "log"),
-#                 chains = 4, # nb of chains
-#                  iter = 4000, # nb of iterations, including burnin
-#                  warmup = 1000, # burnin
-#                  thin = 3,
-#                 control = list(adapt_delta = 0.99, max_treedepth = 15))
-
-#saveRDS(H1.Sph.beta, 'RDS-files/H1.Sph.beta.RDS')
-readRDS(H1.Sph.beta, 'RDS-files/H1.Sph.beta.RDS')
 ```

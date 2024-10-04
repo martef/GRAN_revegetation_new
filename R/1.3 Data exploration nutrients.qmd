@@ -271,7 +271,7 @@ denplot_loc <-
   theme_minimal() +
   theme(legend.position = 'none') +
   facet_wrap(~ Nutrients, scales = "free_x")
-
+xlim(0, NA)  # Set the lower bound of x-axis to 0 and leave the upper bound automatic
   
 print(denplot_loc)
 ggsave(denplot_loc, filename='../figures/densityplot_nutrients_location.png')

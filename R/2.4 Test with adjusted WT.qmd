@@ -247,12 +247,45 @@ wt_variables <- wt_variables %>%
 wt_variables %>%
   rename(consecutive_days_low_gs = consecutive_days_count, total_days_low_gs = total_days)
 
-#write.csv(final_variables, '../data/WT_variables2.csv')
-#wt_variables <- readr::read_delim('../data/WT_variables2.csv',
+wtvar <- wt_variables 
+wtvar <- wtvar %>%  
+     mutate(Name=case_when(Station_ID=='BSM1'~ 'Hoydalsmoan', 
+                           Station_ID=='BSM2'~'Hoydalsmoan',
+                           Station_ID=='BSM3'~'Hoydalsmoan', 
+                           Station_ID=='HM1'~'Hoydalsmoan', 
+                           Station_ID=='HM2'~'Hoydalsmoan', 
+                           Station_ID=='HM3'~'Hoydalsmoan', 
+                           Station_ID=='VSM1'~'Vestersetermyra', 
+                           Station_ID=='VSM2'~'Vestersetermyra', 
+                           TRUE ~ NA)) %>% 
+  mutate_at(c('year', 'Station_ID'), as.factor) 
+
+#Created a column for weather station Name in the water table dataset
+
+
+wtvar <- wtvar%>% 
+   relocate(Name) 
+
+# The total days with water table < -0.2m (total_days) are set to zero for those stations that didn't have any data (BSM1 in 2022, 2023, and HM2 in 2021, 2022, 2023). I need to change these to NAs 
+
+wtvar <- wtvar %>% 
+  mutate(total_days = case_when( 
+         is.na(consecutive_days_count) ~ NA_real_, 
+              TRUE ~ total_days 
+            )) 
+ 
+#Create similar columns as in reveg dataset 
+wtvar <- wtvar %>% 
+     separate('Station_ID', into = c('Location', 'Sublocation'), sep = "(?<=\\D)(?=\\d)|(?<=\\d)(?=\\D)", remove = FALSE)
+
+write.csv(wtvar, '../data/WT_varfinal.csv')
+#wtvar <- readr::read_delim('../data/WT_varfinal.csv',
  #                      delim =  ',',
   #                    col_names = TRUE)
-wt_variables
+wtvar
 ```
+
+## Summary of WT variables
 
 ```{r}
 wt_variables_loc <- wt_variables %>%
@@ -270,6 +303,44 @@ mutate(Location = case_when(
             total_days_below = max(total_days, na.rm=TRUE))
 wt_variables_loc
 ```
+
+```{r}
+wt_variables_subloc <- wt_variables %>%
+  group_by(Station_ID, year) %>%
+  summarise(max_WT_below_cons = max(consecutive_days_count, na.rm=TRUE),
+            WT_mean = mean(gs_mean, na.rm = TRUE),
+            WT_max = max(gs_max, na.rm = TRUE),
+            WT_min = min(gs_min, na.rm = TRUE),
+            total_days_below = max(total_days, na.rm=TRUE))
+wt_variables_loc
+```
+
+# Correlation test of WT variables
+
+```{r}
+# Perform correlation test
+cor_matrix <- wtvar %>%
+  select(consecutive_days_count, gs_mean, gs_max, gs_min, total_days) %>%
+  cor(use = "complete.obs", method = "pearson")
+
+# Display the correlation matrix
+print(cor_matrix)
+```
+
+```{r}
+library(car)
+
+# Fit a linear model with all the variables
+lm_model <- lm(gs_mean ~ consecutive_days_count + gs_max + gs_min + total_days, data = wtvar)
+
+# Calculate VIF
+vif_values <- vif(lm_model)
+
+# Display the VIF values
+print(vif_values)
+```
+
+From the Pearson's correlation test and the Variance Inflation Factor (VIF) test, I can see that I'll probably should only use one of the WT variables, possibly mean. I could also test with adding max.
 
 ## Combine WT with precipitation
 
@@ -499,41 +570,7 @@ for (station in unique_stations) {
 }
 ```
 
-## Combine WT variables with reveg
-
-```{r}
-wtvar <- wt_variables 
-wtvar <- wtvar %>%  
-     mutate(Name=case_when(Station_ID=='BSM1'~ 'Hoydalsmoan', 
-                           Station_ID=='BSM2'~'Hoydalsmoan',
-                           Station_ID=='BSM3'~'Hoydalsmoan', 
-                           Station_ID=='HM1'~'Hoydalsmoan', 
-                           Station_ID=='HM2'~'Hoydalsmoan', 
-                           Station_ID=='HM3'~'Hoydalsmoan', 
-                           Station_ID=='VSM1'~'Vestersetermyra', 
-                           Station_ID=='VSM2'~'Vestersetermyra', 
-                           TRUE ~ NA)) %>% 
-  mutate_at(c('year', 'Station_ID'), as.factor) 
-
-#Created a column for weather station Name in the water table dataset
-
-
-wtvar <- wtvar%>% 
-   relocate(Name) 
-
-# The total days with water table < -0.2m (total_days) are set to zero for those stations that didn't have any data (BSM1 in 2022, 2023, and HM2 in 2021, 2022, 2023). I need to change these to NAs 
-
-wtvar <- wtvar %>% 
-  mutate(total_days = case_when( 
-         is.na(consecutive_days_count) ~ NA_real_, 
-              TRUE ~ total_days 
-            )) 
- 
-#Create similar columns as in reveg dataset 
-wtvar <- wtvar %>% 
-     separate('Station_ID', into = c('Location', 'Sublocation'), sep = "(?<=\\D)(?=\\d)|(?<=\\d)(?=\\D)", remove = FALSE)
-
-```
+# Upload reveg and join with WT
 
 ```{r}
 reveg_var <- readr::read_delim('../data/reveg_var.csv', 
@@ -632,9 +669,7 @@ reveg_var %>%
   )
 ```
 
-# Run brms models Sphagnum
-
-## Preparing the data
+# Preparing the data
 
 Filter the data down to year 3 only
 
@@ -657,17 +692,15 @@ WT2 <- WT %>%
   group_by(Location, Sublocation, Station_ID) %>%
  summarise(WT_consecutive_days_below_max = max(consecutive_days_count),
            WT_mean = mean(gs_mean, na.rm = TRUE),
-           WT_total_days_below_sum = sum(total_days))
+           WT_total_days_below_sum = sum(total_days),
+           WT_max = mean(gs_max, na.rm = TRUE),
+           WT_min = mean(gs_min, na.rm = TRUE))
 
 WT2
 ```
 
 ```{r}
 H1.Sph.revWT <- full_join(H1.Sph.revWT, WT2, by=c('Location', 'Sublocation', 'Station_ID'))
-rm(WT, WT2)
-
-H1.Sph.revWT <- H1.Sph.revWT %>%
-  mutate_at(c('Location', 'Sublocation','Block', 'Treatment'), as.factor)
 ```
 
 ```{r}
@@ -719,9 +752,13 @@ H1.Sph.revWT.imp <- impute_custom(H1.Sph.revWT.imp, 'WT_total_days_below_sum', '
 H1.Sph.revWT.imp <- impute_custom(H1.Sph.revWT.imp, 'WT_total_days_below_sum', 'HM2', c('HM1', 'HM3'))
 
 H1.Sph.revWT.imp <- impute_custom(H1.Sph.revWT.imp, 'WT_mean', 'HM2', c('HM1', 'HM3'))
+H1.Sph.revWT.imp <- impute_custom(H1.Sph.revWT.imp, 'WT_max', 'HM2', c('HM1', 'HM3'))
+H1.Sph.revWT.imp <- impute_custom(H1.Sph.revWT.imp, 'WT_min', 'HM2', c('HM1', 'HM3'))
 
 colSums(is.na(H1.Sph.revWT.imp))
 ```
+
+# Run brms models Sphagnum
 
 ## brms model H1
 
@@ -935,13 +972,15 @@ mod4 <- brm(Sphagnum_beta / 100 ~ 1 + (WT_mean | Location/Sublocation),
     iter = 4000, 
     warmup = 1000, 
     control = list(adapt_delta = 0.99, max_treedepth = 15))
+
+saveRDS(mod4, 'RDS-files/mod4_WTrev_WTrandom.RDS')
 ```
 
 ```{r}
 summary(mod4)
 ```
 
-This looks more or less similar to the previous model (mod3), indicating that the random slope and intercept doesn't change with adding a fixed effect. The same
+This looks more or less similar to the previous model (mod3), indicating that the random slope and intercept doesn't change with adding a fixed effect.
 
 ```{r}
 mod5 <- brm(Sphagnum_beta / 100 ~ 1 + (WT_mean | Location/Sublocation),
@@ -961,7 +1000,55 @@ mod5 <- brm(Sphagnum_beta / 100 ~ 1 + (WT_mean | Location/Sublocation),
 summary(mod5)
 ```
 
-## Compare the models (mod3 and mod5)
+```{r}
+mod6 <- brm(Sphagnum_beta / 100 ~ WT_mean +(1 | Location/Sublocation),
+    data = H1.Sph.revWT.imp %>% filter(Treatment=="S"),
+    family = Beta(link = "logit", link_phi = "log"), 
+    chains = 4, 
+    iter = 4000, 
+    warmup = 1000, 
+    control = list(adapt_delta = 0.99, max_treedepth = 15))
+
+saveRDS(mod6, 'RDS-files/mod6_WTrev_S_WTmean.RDS')
+```
+
+```{r}
+summary(mod6)
+```
+
+```{r}
+mod8 <- brm(Sphagnum_beta / 100 ~ Treatment + (1|WT_mean) +(1 | Location/Sublocation),
+    data = H1.Sph.revWT.imp,
+    family = Beta(link = "logit", link_phi = "log"), 
+    chains = 4, 
+    iter = 4000, 
+    warmup = 1000, 
+    control = list(adapt_delta = 0.99, max_treedepth = 15))
+
+saveRDS(mod8, 'RDS-files/mod8_WTrev_S_WTrandom.RDS')
+```
+
+```{r}
+summary(mod8)
+```
+
+```{r}
+mod9 <- brm(Sphagnum_beta / 100 ~ 1 + (1|WT_mean) +(1 | Location/Sublocation),
+    data = H1.Sph.revWT.imp,
+    family = Beta(link = "logit", link_phi = "log"), 
+    chains = 4, 
+    iter = 4000, 
+    warmup = 1000, 
+    control = list(adapt_delta = 0.99, max_treedepth = 15))
+
+saveRDS(mod9, 'RDS-files/mod9_WTrev_WTrandom.RDS')
+```
+
+```{r}
+summary(mod9)
+```
+
+## Compare the models (mod3 and mod5, mod8 and mod9)
 
 ```{r}
 loo_mod3 <- loo(mod3)
@@ -974,15 +1061,30 @@ loo_compare(loo_mod3, loo_mod5)
 Warning: Found 1 observations with a pareto_k > 0.7 in model 'mod3'. We recommend to set 'moment_match = TRUE' in order to perform moment matching for problematic observations.
 ```
 
+```{r}
+loo_mod8 <- loo(mod8)
+loo_mod9 <- loo(mod9)
+
+loo_compare(loo_mod8, loo_mod9)
+```
+
+```{r}
+loo_compare(loo_mod3, loo_mod5, loo_mod8, loo_mod9)
+```
+
 Checking with Bayesian R-squared to compare variance.
 
 ```{r}
 # Calculate Bayesian R-squared for both models
 bayes_R2_mod3 <- bayes_R2(mod3)
 bayes_R2_mod5 <- bayes_R2(mod5)
+bayes_R2_mod8 <- bayes_R2(mod8)
+bayes_R2_mod9 <- bayes_R2(mod9)
 
 print(bayes_R2_mod3)
 print(bayes_R2_mod5)
+print(bayes_R2_mod8)
+print(bayes_R2_mod9)
 ```
 
 ```{r}
@@ -992,45 +1094,45 @@ bayes_factor(mod3, mod5)
 Bayes Factor seems very unstable, with extreme values, so I'm going to keep up with LOOCV.
 
 ```{r}
-plot(mod3)
+plot(mod8)
 ```
 
 ```{r}
 # Create the MCMC plot
-mcmc_plot_mod3 <- mcmc_plot(mod3)
+mcmc_plot_mod8 <- mcmc_plot(mod8)
 
 # Save the plot as a PNG file
-ggsave(filename = '../figures/mcmc_plot_mod3.png', plot = mcmc_plot_mod3)
+ggsave(filename = '../figures/mcmc_plot_mod8.png', plot = mcmc_plot_mod8)
 
-mcmc_plot_mod3
+mcmc_plot_mod8
 ```
 
 ```{r}
 #Create a trace plot with the main parameters
 
-parameters <- tidybayes::get_variables(mod3)
+parameters <- tidybayes::get_variables(mod8)
 print(parameters)
 
-#I want to include: "b_Intercept", "b_TreatmentS", "b_TreatmentM", "sd_Location__Intercept"  , "sd_Location__WT_mean", "sd_Location:Sublocation__Intercept", "sd_Location:Sublocation__WT_mean", "phi"
+#I want to include: "b_Intercept", "b_TreatmentS", "b_TreatmentM", "sd_Location__Intercept"  , "sd_WT_mean__Intercept", "sd_Location:Sublocation__Intercept", "phi"
 
 # Create the trace plot for specific main parameters
-trace_plot_mod3<- mcmc_trace(mod3, pars = c("b_Intercept", "b_TreatmentS", "b_TreatmentM", "sd_Location__Intercept"  , "sd_Location__WT_mean", "sd_Location:Sublocation__Intercept", "sd_Location:Sublocation__WT_mean", "phi"))  # Example parameters
+trace_plot_mod8<- mcmc_trace(mod8, pars = c("b_Intercept", "b_TreatmentS", "b_TreatmentM", "sd_WT_mean__Intercept", "sd_Location__Intercept"  ,  "sd_Location:Sublocation__Intercept", "phi"))  # Example parameters
 
 
-ggsave(filename = '../figures/trace_plot_mod3.png', plot=trace_plot_mod3)
-trace_plot_mod3
+ggsave(filename = '../figures/trace_plot_mod8.png', plot=trace_plot_mod8)
+trace_plot_mod8
 ```
 
 ```{r}
 # Create the pp_check plot
-ppc_mod3 <- pp_check(mod3, ndraws = 100, type = 'dens_overlay')
+ppc_mod8 <- pp_check(mod8, ndraws = 100, type = 'dens_overlay')
 
 # Add axis labels
-ppc_mod3 <- ppc_mod3 + labs(x = "Proportion of Sphagnum cover", y = "Density")
+ppc_mod8 <- ppc_mod8 + labs(x = "Proportion of Sphagnum cover", y = "Density")
 
 # Save the plot to a file
-ggsave(filename = '../figures/ppc_mod3.png', plot = ppc_mod3)
-ppc_mod3
+ggsave(filename = '../figures/ppc_mod8.png', plot = ppc_mod8)
+ppc_mod8
 ```
 
 ```{r}
@@ -1049,10 +1151,10 @@ ppc_mod5
 
 ```{r}
 # Extract posterior samples
-posterior_samples <- as.data.frame(mod3)
+posterior_samples <- as.data.frame(mod8)
 
 # List of variables of interest
-variables <- c("b_Intercept", "b_TreatmentS", "b_TreatmentM", "sd_Location__Intercept"  , "sd_Location__WT_mean", "sd_Location:Sublocation__Intercept", "sd_Location:Sublocation__WT_mean", "phi")
+variables <- c("b_Intercept", "b_TreatmentS", "b_TreatmentM", "sd_WT_mean__Intercept", "sd_Location__Intercept"  , "sd_Location:Sublocation__Intercept", "phi")
 
 # Extracting posterior samples for the variables of interest
 selected_columns <- colnames(posterior_samples)[grepl(paste(variables, collapse = "|"), colnames(posterior_samples))]
@@ -1064,12 +1166,12 @@ posterior_data <- posterior_samples %>%
 # Rename variables for better y-axis labels
 posterior_data$Variable <- recode(posterior_data$Variable, 
                                   "b_Intercept" = "Intercept of control",
-                                  "sd_Location__Intercept" = "sd of intercept within locations",
-                                  "sd_Location:Sublocation__Intercept" = "sd of intercept within sublocations",
-                                  "sd_Location__WT_mean" = "sd mean water table within locations",
-                                  "sd_Location:Sublocation__WT_mean" = "sd mean water table within sublocations",
                                   "b_TreatmentS" = "Sphagnum treatment",
-                                  'b_TreatmentM' = 'Mulch treatment')  
+                                  'b_TreatmentM' = 'Mulch treatment',
+                                  "sd_Location__Intercept" = "Intercept of sd within locations",
+                                  "sd_Location:Sublocation__Intercept" = "Intercept of sd within sublocations",
+                                  "sd_WT_mean__Intercept" = "Intercept of sd mean water table"
+                                  )  
 
 # Define x-axis limits to exclude extreme tails
 x_limits <- c(-5, 5)  # Adjust these values based on your data
@@ -1088,7 +1190,7 @@ ridge_plot <- ggplot(posterior_data, aes(x = Value, y = Variable, fill = Variabl
 
 
 # Save the plot
-ggsave(filename = '../figures/treatment_posterior_distributions.mod3.png', plot = ridge_plot)
+ggsave(filename = '../figures/treatment_posterior_distributions.mod8.png', plot = ridge_plot)
 ridge_plot
 ```
 
@@ -1128,7 +1230,7 @@ ridge_plot2 <- ggplot(posterior_data, aes(x = Value, y = Variable, fill = Variab
 
 
 # Save the plot
-ggsave(filename = '../figures/treatment_posterior_distributions.mod3_exp.png', plot = ridge_plot2)
+ggsave(filename = '../figures/treatment_posterior_distributions.mod8_exp.png', plot = ridge_plot2)
 
 ridge_plot2
 ```
@@ -1157,4 +1259,87 @@ reveg_var %>%
   summarise(
    max = max(Sphagnum, na.rm=TRUE))
 
+```
+
+# New models with WT as explanatory variable (again)
+
+```{r}
+mod10 <- brm(Sphagnum_beta / 100 ~ Treatment + WT_mean +(1 | Location/Sublocation),
+    data = H1.Sph.revWT.imp,
+    family = Beta(link = "logit", link_phi = "log"), 
+    chains = 4, 
+    iter = 4000, 
+    warmup = 1000, 
+    control = list(adapt_delta = 0.99, max_treedepth = 15))
+
+saveRDS(mod10, 'RDS-files/mod10.RDS')
+```
+
+```{r}
+summary(mod10)
+```
+
+```{r}
+mod11 <- brm(Sphagnum_beta / 100 ~ WT_mean +(1 | Location/Sublocation),
+    data = H1.Sph.revWT.imp,
+    family = Beta(link = "logit", link_phi = "log"), 
+    chains = 4, 
+    iter = 4000, 
+    warmup = 1000, 
+    control = list(adapt_delta = 0.99, max_treedepth = 15))
+
+saveRDS(mod11, 'RDS-files/mod11.RDS')
+```
+
+```{r}
+summary(mod11)
+```
+
+```{r}
+bayes_R2_mod10 <- bayes_R2(mod10)
+bayes_R2_mod11 <- bayes_R2(mod11)
+
+print(bayes_R2_mod10)
+print(bayes_R2_mod11)
+```
+
+```{r}
+
+loo_mod10 <- loo(mod10)
+loo_mod11 <- loo(mod11)
+
+loo_compare(loo_mod8, loo_mod9, loo_mod10, loo_mod11)
+```
+
+```{r}
+mod11 <- brm(Sphagnum_beta / 100 ~ WT_mean +(1 | Location/Sublocation),
+    data = H1.Sph.revWT.imp,
+    family = Beta(link = "logit", link_phi = "log"), 
+    chains = 4, 
+    iter = 4000, 
+    warmup = 1000, 
+    control = list(adapt_delta = 0.99, max_treedepth = 15))
+
+saveRDS(mod11, 'RDS-files/mod11.RDS')
+```
+
+```{r}
+mod12 <- brm(Sphagnum_beta / 100 ~ Treatment + WT_mean + WT_min + (1 | Location/Sublocation),
+    data = H1.Sph.revWT.imp,
+    family = Beta(link = "logit", link_phi = "log"), 
+    chains = 4, 
+    iter = 4000, 
+    warmup = 1000, 
+    control = list(adapt_delta = 0.99, max_treedepth = 15))
+
+saveRDS(mod12, 'RDS-files/mod12.RDS')
+```
+
+```{r}
+summary(mod12)
+```
+
+```{r}
+bayes_R2_mod12 <- bayes_R2(mod12)
+print(bayes_R2_mod12)
 ```
