@@ -643,7 +643,7 @@ reveg_wide <- reveg_wide %>%
 reveg_wide
 ```
 
-##  Plots with M treatment with already Sphagnum from the start
+## Plots with M treatment with already Sphagnum from the start
 
 ```{r}
 plots_with_sphagnum <- reveg_var %>%
@@ -695,4 +695,4 @@ summary_stats <- reveg_var_MSph %>%
 summary_stats
 ```
 
-##  
+## 
