@@ -36,12 +36,12 @@ I've seen that there is a need for some cleaning within the plant functional gro
 #Renaming and combining several of the field groups into more coherent functional groups:
 
 reveg_var <- reveg_var %>%
-  rename(Liverworts = Livermosses, Rushes = Sedges, Ericoids = Heathers) %>% #rename misnamed groups
+  rename(Liverworts = Livermosses, Rushes = Sedges, Ericoids = Heathers, Eriophorum = Eriopherum) %>% #rename misnamed groups
   mutate(Shrubs_Trees = Trees + Bushes + Bet_nan,   # combine Trees, Bushes, and Bet_nan into Shrubs_Trees
          Carex = Carex + Rhynchospora,       # join Rhyncospora into Carex
          Herbs = Herbs + Oxycoccus + Drosera, # join Oxycoccus and Drosera into Herbs
-         Other_mosses = Other_mosses + Racomitrium)    %>%       
- select(-Trees, -Bushes, -Bet_nan, -Rhynchospora, -Oxycoccus, -Drosera)  %>% # remove the old columns
+         Other_bryophytes = Other_mosses + Racomitrium)    %>%       
+ select(-Trees, -Bushes, -Bet_nan, -Rhynchospora, -Oxycoccus, -Drosera, -Other_mosses, -Racomitrium)  %>% # remove the old columns
   relocate(Shrubs_Trees, .after = Seedlings)  
 ```
 
@@ -81,7 +81,7 @@ I need to take a closer look at those with total vegetation cover of more than 1
 
 ```{r}
 reveg_var%>%
-  dplyr::select(c(Location, t_year, Sublocation, Block, Treatment, Treatment_ID, Sphagnum, Other_mosses, Liverworts, Lichen, Polytrichum, Racomitrium, Trichophorum, Eriopherum, Evergreens, Narthecium, Other_veg, Veg_Ground, Tot_Ground, Field, Total_veg))%>%
+  dplyr::select(c(Location, t_year, Sublocation, Block, Treatment, Treatment_ID, Sphagnum, Other_bryophytes, Liverworts, Lichen, Polytrichum, Trichophorum, Eriophorum, Ericoids, Narthecium, Other_veg, Veg_Ground, Tot_Ground, Field, Total_veg))%>%
  filter(Total_veg>120)
 ```
 
@@ -206,18 +206,18 @@ mean_cover_ref <- reveg_var %>%
   summarise(
     mean_Sphagnum = mean(Sphagnum, na.rm = TRUE),
     max_Sphagnum = max(Sphagnum, na.rm = TRUE),
-    mean_Eriopherum = mean(Eriopherum, na.rm = TRUE),
-    max_Eriopherum = max(Eriopherum, na.rm = TRUE),
+    mean_Eriophorum = mean(Eriophorum, na.rm = TRUE),
+    max_Eriophorum = max(Eriophorum, na.rm = TRUE),
     mean_Narthecium = mean(Narthecium, na.rm = TRUE),
     max_Narthecium = max(Narthecium, na.rm = TRUE),
     mean_Trichophorum = mean(Trichophorum, na.rm = TRUE),
     max_Trichophorum = max(Trichophorum, na.rm = TRUE),
-    mean_Evergreens = mean(Evergreens, na.rm = TRUE),
-    max_Evergreens = max(Evergreens, na.rm = TRUE),
+    mean_Ericoids = mean(Ericoids, na.rm = TRUE),
+    max_Ericoids = max(Ericoids, na.rm = TRUE),
     mean_Litter = mean(Litter, na.rm = TRUE),
     max_Litter = max(Litter, na.rm = TRUE),
-    mean_OtherMosses = mean(Other_mosses, na.rm = TRUE),
-    max_OtherMosses = max(Other_mosses, na.rm = TRUE)
+    mean_OtherBryophytes = mean(Other_bryophytes, na.rm = TRUE),
+    max_OtherBryophytes = max(Other_bryophytes, na.rm = TRUE)
   ) %>%
   pivot_longer(
     cols = everything(),
@@ -239,18 +239,18 @@ mean_cover_S_3 <- reveg_var %>%
   summarise(
     mean_Sphagnum = mean(Sphagnum, na.rm = TRUE),
     max_Sphagnum = max(Sphagnum, na.rm = TRUE),
-    mean_Eriopherum = mean(Eriopherum, na.rm = TRUE),
-    max_Eriopherum = max(Eriopherum, na.rm = TRUE),
+    mean_Eriophorum = mean(Eriophorum, na.rm = TRUE),
+    max_Eriophorum = max(Eriophorum, na.rm = TRUE),
     mean_Narthecium = mean(Narthecium, na.rm = TRUE),
     max_Narthecium = max(Narthecium, na.rm = TRUE),
     mean_Trichophorum = mean(Trichophorum, na.rm = TRUE),
     max_Trichophorum = max(Trichophorum, na.rm = TRUE),
-    mean_Evergreens = mean(Evergreens, na.rm = TRUE),
-    max_Evergreens = max(Evergreens, na.rm = TRUE),
+    mean_Ericoids = mean(Ericoids, na.rm = TRUE),
+    max_Ericoids = max(Ericoids, na.rm = TRUE),
     mean_Litter = mean(Litter, na.rm = TRUE),
     max_Litter = max(Litter, na.rm = TRUE),
-    mean_OtherMosses = mean(Other_mosses, na.rm = TRUE),
-    max_OtherMosses = max(Other_mosses, na.rm = TRUE)
+    mean_OtherBryophytes = mean(Other_bryophytes, na.rm = TRUE),
+    max_OtherBryophytes = max(Other_bryophytes, na.rm = TRUE)
   ) %>%
   pivot_longer(
     cols = everything(),
@@ -271,18 +271,18 @@ mean_cover_M_3 <- reveg_var %>%
   summarise(
     mean_Sphagnum = mean(Sphagnum, na.rm = TRUE),
     max_Sphagnum = max(Sphagnum, na.rm = TRUE),
-    mean_Eriopherum = mean(Eriopherum, na.rm = TRUE),
-    max_Eriopherum = max(Eriopherum, na.rm = TRUE),
+    mean_Eriophorum = mean(Eriophorum, na.rm = TRUE),
+    max_Eriophorum = max(Eriophorum, na.rm = TRUE),
     mean_Narthecium = mean(Narthecium, na.rm = TRUE),
     max_Narthecium = max(Narthecium, na.rm = TRUE),
     mean_Trichophorum = mean(Trichophorum, na.rm = TRUE),
     max_Trichophorum = max(Trichophorum, na.rm = TRUE),
-    mean_Evergreens = mean(Evergreens, na.rm = TRUE),
-    max_Evergreens = max(Evergreens, na.rm = TRUE),
+    mean_Ericoids = mean(Ericoids, na.rm = TRUE),
+    max_Ericoids = max(Ericoids, na.rm = TRUE),
     mean_Litter = mean(Litter, na.rm = TRUE),
     max_Litter = max(Litter, na.rm = TRUE),
-    mean_OtherMosses = mean(Other_mosses, na.rm = TRUE),
-    max_OtherMosses = max(Other_mosses, na.rm = TRUE)
+    mean_OtherBryophytes = mean(Other_bryophytes, na.rm = TRUE),
+    max_OtherBryophytes = max(Other_bryophytes, na.rm = TRUE)
   ) %>%
   pivot_longer(
     cols = everything(),
@@ -303,18 +303,18 @@ mean_cover_C_3 <- reveg_var %>%
   summarise(
     mean_Sphagnum = mean(Sphagnum, na.rm = TRUE),
     max_Sphagnum = max(Sphagnum, na.rm = TRUE),
-    mean_Eriopherum = mean(Eriopherum, na.rm = TRUE),
-    max_Eriopherum = max(Eriopherum, na.rm = TRUE),
+    mean_Eriophorum = mean(Eriophorum, na.rm = TRUE),
+    max_Eriophorum = max(Eriophorum, na.rm = TRUE),
     mean_Narthecium = mean(Narthecium, na.rm = TRUE),
     max_Narthecium = max(Narthecium, na.rm = TRUE),
     mean_Trichophorum = mean(Trichophorum, na.rm = TRUE),
     max_Trichophorum = max(Trichophorum, na.rm = TRUE),
-    mean_Evergreens = mean(Evergreens, na.rm = TRUE),
-    max_Evergreens = max(Evergreens, na.rm = TRUE),
+    mean_Ericoids = mean(Ericoids, na.rm = TRUE),
+    max_Ericoids = max(Ericoids, na.rm = TRUE),
     mean_Litter = mean(Litter, na.rm = TRUE),
     max_Litter = max(Litter, na.rm = TRUE),
-    mean_OtherMosses = mean(Other_mosses, na.rm = TRUE),
-    max_OtherMosses = max(Other_mosses, na.rm = TRUE)
+    mean_OtherBryophytes = mean(Other_bryophytes, na.rm = TRUE),
+    max_OtherBryophytes = max(Other_bryophytes, na.rm = TRUE)
   ) %>%
   pivot_longer(
     cols = everything(),
@@ -351,7 +351,7 @@ combined_mean_cover <- bind_rows(mean_cover_ref, mean_cover_S_3, mean_cover_M_3,
 print(combined_mean_cover)
 ```
 
-The reference plots have a high cover of Sphagnum (about 71% mean), and a decent cover of Narthecium, evergreens (mostly heather) and Trichophorum. There's also some litter (about 14%ish), while Eriopherum covers only ca. 3%)
+The reference plots have a high cover of Sphagnum (about 71% mean), and a decent cover of Narthecium, Ericoids (mostly heather) and Trichophorum. There's also some litter (about 14%ish), while Eriopherum covers only ca. 3%)
 
 ```{r}
 summary_data <- reveg_var %>%
@@ -377,15 +377,15 @@ summary_data <- reveg_var %>%
 print(summary_data)
 ```
 
-The natural cover of Eriopherum is quite low, which is interesting to compare to the experimental plots, as this is a plant that increases rapidly in newly rewetted peatlands. In the experimental plots:
+The natural cover of Eriophorum is quite low, which is interesting to compare to the experimental plots, as this is a plant that increases rapidly in newly rewetted peatlands. In the experimental plots:
 
 ```{r}
 plot_eri <- reveg_var %>%
-  filter(!is.na(Eriopherum)) %>%  # Exclude the NA value
+  filter(!is.na(Eriophorum)) %>%  # Exclude the NA value
   ggplot() +   
   geom_boxplot()+   
-  aes(x=Treatment, y=Eriopherum, color=as.factor(t_year)) +
-  ylab("Eriopherum cover") +
+  aes(x=Treatment, y=Eriophorum, color=as.factor(t_year)) +
+  ylab("Eriophorum cover") +
   labs(color = "Growth seasons since treatment") +
   theme_bw()
 plot_eri +  theme(legend.position="bottom")
@@ -394,19 +394,19 @@ plot_eri +  theme(legend.position="bottom")
 ```{r}
 mean_cover_eri <- reveg_var %>%
   group_by(Treatment, t_year) %>%
-  summarise(mean_cover = mean(Eriopherum, na.rm = TRUE),
-            max_cover = max(Eriopherum, na.rm = TRUE))
+  summarise(mean_cover = mean(Eriophorum, na.rm = TRUE),
+            max_cover = max(Eriophorum, na.rm = TRUE))
 print(mean_cover_eri)
 ```
 
-The cover of Eriopherum is higher than in the reference plots in both C, M, and S after 3 years, if not by much. In some specific plots the cover is substantially higher than the references.
+The cover of Eriophorum is higher than in the reference plots in both C, M, and S after 3 years, if not by much. In some specific plots the cover is substantially higher than the references.
 
-There is however a number here I need to check further. How can there be max 80% cover of Eriopherum in M in year 2, while this is only 30% in year 3? That is a drastic decrease. I have narrowed the problem down to VSM2:
+There is however a number here I need to check further. How can there be max 80% cover of Eriophorum in M in year 2, while this is only 30% in year 3? That is a drastic decrease. I have narrowed the problem down to VSM2:
 
 ```{r}
 reveg_var %>%
   filter(Treatment=='M' & Station_ID=='VSM-2') %>%
-  select(c(Location, Sublocation, Block, t_year, Eriopherum, Mulch, Bare_peat, Sphagnum, Polytrichum))
+  select(c(Location, Sublocation, Block, t_year, Eriophorum, Mulch, Bare_peat, Sphagnum, Polytrichum))
 ```
 
 Overall vegetation cover of other plant FTGs than Sphagnum in R:
@@ -434,21 +434,21 @@ plot_fun3 +  theme(legend.position="bottom")
 
 Most plots have still very little other vegetation than Sphagnum after 3 years.
 
-Some plots have a very high cover of other types of mosses. Same goes for Eriopherum, Heathers and Polytrichum.
+Some plots have a very high cover of other types of mosses. Same goes for Eriophorum, Ericoids and Polytrichum.
 
 ```{r}
 plot_hea <- reveg_var %>%
-  filter(!is.na(Evergreens)) %>%  # Exclude the NA value
+  filter(!is.na(Ericoids)) %>%  # Exclude the NA value
   ggplot() +   
   geom_boxplot()+   
-  aes(x=Treatment, y=Evergreens, color=as.factor(t_year)) +
-  ylab("Heathers cover") +
+  aes(x=Treatment, y=Ericoids, color=as.factor(t_year)) +
+  ylab("Ericoids cover") +
   labs(color = "Growth seasons since treatment") +
   theme_bw()
 plot_hea +  theme(legend.position="bottom")
 ```
 
-There is an interesting increase in heathers within the Sphagnum treatments. This is also partly visible within the mulch plots. The means are still low, but several plots seem to have had a great development in heather cover within the time period. In contrast to the Eriopherum, the Heather cover is still not fully reaching the levels of the references after 3 years.
+There is an interesting increase in Ericoids within the Sphagnum treatments. This is also partly visible within the mulch plots. The means are still low, but several plots seem to have had a great development in heather cover within the time period. In contrast to the Eriophorum, the Ericoids cover is still not fully reaching the levels of the references after 3 years.
 
 ## Violin plot of total vegetation cover, other vegetation cover and Sphagnum
 
@@ -510,8 +510,6 @@ plot_OV
 
 ggsave(plot_OV, filename='../figures/violinplot_OV.png', width = 10, height = 6, units = "in")
 ```
-
-## 
 
 ## Full summary
 
@@ -694,5 +692,3 @@ summary_stats <- reveg_var_MSph %>%
 # View the summary statistics
 summary_stats
 ```
-
-## 

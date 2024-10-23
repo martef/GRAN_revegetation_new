@@ -1,0 +1,268 @@
+---
+title: "2.5 Figures vegetation"
+author: "MarteF"
+format: html
+editor: visual
+---
+
+## 
+
+## Packages needed
+
+```{r}
+library(tidyverse) # Load the tidyverse package for data manipulation and visualization
+library(readr) # Load readr for reading data files
+library(lubridate) # Load lubridate for working with dates
+library(forcats) # Load forcats for working with categorical variables (factors)
+library(gridExtra) # Load gridExtra for arranging multiple plots side by side
+library(cowplot) # Load cowplot for creating combined plots with shared legends
+library(patchwork) # Load patchwork for arranging plots neatly
+
+```
+
+## Uploading and cleaning the data
+
+```{r}
+reveg_var <- readr::read_delim('./data/reveg_var.csv',                         delim = ',',                        
+                               locale = locale('se', encoding = 'ISO8859-1'),                        col_names = TRUE)  
+
+reveg_var <- reveg_var %>%    
+  select( -1) %>%   
+  mutate_at(c('year', 'month', 'Location', 'Sublocation', 'Block', 'Treatment_ID', 'Treatment', 'Name', 'Station_ID'), as.factor) %>%   
+  select('Date','year','month', 'Name','Location','Sublocation', 'Block', 'Treatment', 'Treatment_ID', 'Station_ID', everything()) %>%   
+  rename(WT_consecutive_days_below = consecutive_days_count, WT_total_days_below=total_days, WT_mean=gs_mean, WT_max=gs_max, WT_min=gs_min) 
+```
+
+Combining groups and renaming others:
+
+```{r}
+#Renaming and combining several of the field groups into more coherent functional groups:  
+reveg_var <- reveg_var %>%   
+  rename(Liverworts = Livermosses, Rushes = Sedges, Ericoids = Heathers, Eriophorum = Eriopherum) %>% #rename misnamed groups   
+  mutate(Shrubs_Trees = Trees + Bushes + Bet_nan,   # combine Trees, Bushes, and Bet_nan into Shrubs_Trees          
+         Carex = Carex + Rhynchospora,       # join Rhyncospora into Carex          
+         Herbs = Herbs + Oxycoccus + Drosera, # join Oxycoccus and Drosera into Herbs          
+         Other_bryophytes = Other_mosses + Racomitrium)    %>%         
+  select(-Trees, -Bushes, -Bet_nan, -Rhynchospora, -Oxycoccus, -Drosera, -Other_mosses, -Racomitrium)  %>% # remove the old columns   
+  relocate(Shrubs_Trees, .after = Seedlings)  
+```
+
+## Creating long format of species functional groups:
+
+```{r}
+# Convert the dataset to long format for easier plotting and analysis
+reveg_long <- reveg_var %>%
+  pivot_longer(Sphagnum:Temp_water, names_to = 'functional_group', values_to = 'cover') # Pivot all columns from Sphagnum to Temp_water
+```
+
+## Violin plot of total vegetation cover, other vegetation cover and Sphagnum
+
+```{r}
+# Create a violin plot for Sphagnum cover by Treatment and growth seasons
+plot_SP <- reveg_var %>%
+  filter(!is.na(Sphagnum)) %>% # Exclude NA values in the Sphagnum column
+  mutate(Treatment = factor(Treatment, levels = c('C', 'M', 'S', 'R'), labels = c('control', 'mulch', 'Sphagnum', 'reference'))) %>% # Rename Treatment levels for better readability
+  ggplot(aes(x = Treatment, y = Sphagnum, color = as.factor(t_year), fill = as.factor(t_year))) +
+  geom_violin(scale = 'width', width = 0.8, alpha = 0.7) + # Add violin plot to show distribution
+  geom_point(pch = 21, size = 1, position = position_jitterdodge()) + # Add jittered points to visualize individual data points
+  ylab('Percentage cover') + # Set y-axis label
+  labs(fill = 'Growth seasons since treatment') + # Set legend label
+  theme_minimal() + # Use minimal theme for a clean look
+  scale_fill_brewer(palette = 'Dark2') + # Use color palette for fills
+  scale_color_brewer(palette = 'Dark2') + # Use color palette for points
+  guides(color = 'none') # Remove color legend for better clarity
+
+plot_SP
+# Save the plot to a file
+ggsave(plot_SP, filename = './figures/violinplot_SP.png', width = 10, height = 6, units = 'in')
+
+```
+
+```{r}
+# Create a violin plot for total vegetation cover by Treatment and growth seasons
+plot_TV <- reveg_var %>%
+  filter(!is.na(Total_veg)) %>% # Exclude NA values in the Total_veg column
+  mutate(Treatment = factor(Treatment, levels = c('C', 'M', 'S', 'R'), labels = c('control', 'mulch', 'Sphagnum', 'reference'))) %>% # Rename Treatment levels for better readability
+  ggplot(aes(x = Treatment, y = Total_veg, color = as.factor(t_year), fill = as.factor(t_year))) +
+  geom_violin(scale = 'width', width = 0.8, alpha = 0.8) + # Add violin plot to show distribution
+  geom_point(pch = 21, size = 1, position = position_jitterdodge()) + # Add jittered points to visualize individual data points
+  ylab('Percentage cover') + # Set y-axis label
+  labs(fill = 'Growth seasons since treatment') + # Set legend label
+  theme_minimal() + # Use minimal theme for a clean look
+  scale_fill_brewer(palette = 'Dark2') + # Use color palette for fills
+  scale_color_brewer(palette = 'Dark2') + # Use color palette for points
+  guides(color = 'none', alpha = 'none') # Remove unnecessary legends
+
+plot_TV
+# Save the plot to a file
+ggsave(plot_TV, filename = './figures/violinplot_TV.png')
+```
+
+```{r}
+# Create a violin plot for other vegetation cover by Treatment and growth seasons
+plot_OV <- reveg_var %>%
+  filter(!is.na(Other_veg)) %>% # Exclude NA values in the Other_veg column
+  mutate(Treatment = factor(Treatment, levels = c('C', 'M', 'S', 'R'), labels = c('control', 'mulch', 'Sphagnum', 'reference'))) %>% # Rename Treatment levels for better readability
+  ggplot(aes(x = Treatment, y = Other_veg, color = as.factor(t_year), fill = as.factor(t_year))) +
+  geom_violin(scale = 'width', width = 0.8, alpha = 0.7) + # Add violin plot to show distribution
+  geom_point(pch = 21, size = 1, position = position_jitterdodge()) + # Add jittered points to visualize individual data points
+  ylab('Percentage cover') + # Set y-axis label
+  labs(fill = 'Growth seasons since treatment') + # Set legend label
+  theme_minimal() + # Use minimal theme for a clean look
+  scale_fill_brewer(palette = 'Dark2') + # Use color palette for fills
+  scale_color_brewer(palette = 'Dark2') + # Use color palette for points
+  guides(color = 'none', alpha = 'none') # Remove unnecessary legends
+
+plot_OV
+# Save the plot to a file
+ggsave(plot_OV, filename = './figures/violinplot_OV.png', width = 10, height = 6, units = 'in')
+```
+
+Combine plots plot_SP and plot_OV
+
+```{r}
+# Arrange plot_SP and plot_OV side by side with shared legend using patchwork
+combined_plot <- (plot_SP + theme(legend.position = 'bottom') + plot_annotation(tag_levels = 'A')) +
+                 (plot_OV + theme(legend.position = 'none') + plot_annotation(tag_levels = 'B')) &
+                 theme(plot.tag = element_text(size = 14))
+
+
+combined_plot
+
+# Save the combined plot to a file
+ggsave(combined_plot, filename = './figures/violinplot_SP_OV.png', width = 14, height = 8, units = 'in')
+```
+
+## Full summary
+
+```{r}
+# Function to calculate the standard error
+se <- function(x) {
+  sd(x, na.rm = TRUE) / sqrt(sum(!is.na(x)))
+}
+
+# Summarize the data
+summary <- reveg_long %>%
+  group_by(functional_group, t_year, Treatment) %>%
+  summarise(mean = mean(cover, na.rm = TRUE),
+            median = median(cover, na.rm = TRUE),
+            se = se(cover),
+            max = max(cover, na.rm = TRUE),
+            .groups = 'drop')
+
+# Pivot the summary data to a wide format
+summary_wide <- summary %>%
+  pivot_wider(names_from = t_year, 
+              values_from = c(mean, median, se, max), 
+              names_glue = "{.value}_year_{t_year}")
+
+# Explicitly order the columns
+summary_wide <- summary_wide %>%
+  select(functional_group, Treatment,
+         mean_year_0, median_year_0, se_year_0, max_year_0,
+         mean_year_2, median_year_2, se_year_2, max_year_2,
+         mean_year_3, median_year_3, se_year_3, max_year_3)
+
+# Print the final summary table
+print
+
+write.csv(summary_wide, file='summary_FGTs.csv')
+```
+
+```{r}
+
+# Define your data summarization
+reveg_summary <- reveg_var %>%
+  dplyr::select(c(Location, Sublocation, Block, Treatment, Treatment_ID, t_year, Other_veg, Total_veg, Field, Veg_Ground, Tot_Ground)) %>%
+  group_by(Treatment, t_year) %>%
+  summarise(
+    Other_veg_mean = mean(Other_veg, na.rm = TRUE),
+    Other_veg_median = median(Other_veg, na.rm = TRUE),
+    Other_veg_se = sd(Other_veg, na.rm = TRUE) / sqrt(n()),
+    Other_veg_max = max(Other_veg, na.rm = TRUE),
+    Field_mean = mean(Field, na.rm = TRUE),
+    Field_median = median(Field, na.rm = TRUE),
+    Field_se = sd(Field, na.rm = TRUE) / sqrt(n()),
+    Field_max = max(Field, na.rm = TRUE),
+    Veg_Ground_mean = mean(Veg_Ground, na.rm = TRUE),
+    Veg_Ground_median = median(Veg_Ground, na.rm = TRUE),
+    Veg_Ground_se = sd(Veg_Ground, na.rm = TRUE) / sqrt(n()),
+    Veg_Ground_max = max(Veg_Ground, na.rm = TRUE),
+    Tot_Ground_mean = mean(Tot_Ground, na.rm = TRUE),
+    Tot_Ground_median = median(Tot_Ground, na.rm = TRUE),
+    Tot_Ground_se = sd(Tot_Ground, na.rm = TRUE) / sqrt(n()),
+    Tot_Ground_max = max(Tot_Ground, na.rm = TRUE),
+    Tot_Veg_mean = mean(Total_veg, na.rm = TRUE),
+    Tot_Veg_median = median(Total_veg, na.rm = TRUE),
+    Tot_Veg_se = sd(Total_veg, na.rm = TRUE) / sqrt(n()),
+    Tot_Veg_max = max(Total_veg, na.rm = TRUE)
+  )
+
+# Pivot to long format for variables
+reveg_long <- reveg_summary %>%
+  pivot_longer(
+    cols = -c(Treatment, t_year),
+    names_to = c("Variable", "Statistic"),
+     names_pattern = "(.*)_(mean|median|se|max)"
+  )
+
+# Pivot to wide format for years, ensuring correct order
+reveg_wide <- reveg_long %>%
+  pivot_wider(
+    names_from = c(t_year, Statistic),
+    values_from = value,
+    names_glue = "{t_year}_{Statistic}"
+  )
+
+
+# Arrange the columns to have Variable, Treatment first, then statistics for each year
+ordered_columns <- c(
+  "Variable", "Treatment",
+  "0_mean", "0_median", "0_se", "0_max",
+  "2_mean", "2_median", "2_se", "2_max",
+  "3_mean", "3_median", "3_se", "3_max"
+)
+
+reveg_wide <- reveg_wide %>%
+  select(any_of(ordered_columns))
+
+# Order the Treatment column
+treatment_order <- c("C", "M", "S", "R")
+
+# Arrange by Variable and then by specified Treatment order
+reveg_wide <- reveg_wide %>%
+  arrange(Variable, factor(Treatment, levels = treatment_order))
+
+reveg_wide
+```
+
+```{r}
+# Summarize the data by functional group, year, and Treatment
+summary <- reveg_long %>%
+  group_by(functional_group, t_year, Treatment) %>% # Group by functional group, year, and Treatment
+  summarise(mean = mean(cover, na.rm = TRUE), # Calculate mean cover
+            median = median(cover, na.rm = TRUE), # Calculate median cover
+            se = se(cover), # Calculate standard error
+            max = max(cover, na.rm = TRUE), # Calculate maximum cover
+            .groups = 'drop') # Ungroup the data after summarizing
+
+# Pivot the summary data to a wide format
+summary_wide <- summary %>%
+  pivot_wider(names_from = t_year, # Create columns for each year
+              values_from = c(mean, median, se, max), # Extract mean, median, SE, and max for each year
+              names_glue = "{.value}_year_{t_year}") # Name columns with value type and year
+
+# Explicitly order the columns for better readability
+summary_wide <- summary_wide %>%
+  select(functional_group, Treatment,
+         mean_year_0, median_year_0, se_year_0, max_year_0,
+         mean_year_2, median_year_2, se_year_2, max_year_2,
+         mean_year_3, median_year_3, se_year_3, max_year_3)
+
+# Print the final summary table
+print(summary_wide)
+
+# Save the summary to a CSV file
+#write.csv(summary_wide, file = 'summary_FGTs.csv')
+
+```
