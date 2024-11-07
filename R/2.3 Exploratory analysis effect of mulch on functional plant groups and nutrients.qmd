@@ -15,6 +15,13 @@ library(ggridges)
 library(RColorBrewer)
 library(scales)
 library(gridExtra)
+library(brms) # bayesian approach to glmm, but with easier steps 
+library(posterior) # tools for working with posterior and prior distributions 
+library(lme4) # fit GLMM in frequentist framework 
+library(rstan) 
+library(bayesplot) 
+library(loo)  
+library(sjPlot)
 
 ```
 
@@ -32,18 +39,20 @@ reveg_var <- reveg_var %>%
   rename(WT_consecutive_days_below = consecutive_days_count, WT_total_days_below=total_days, WT_mean=gs_mean, WT_max=gs_max, WT_min=gs_min)
 ```
 
+UPDATE! THIS IS NOW FIXED IN THE DATASET AND WILL NOT BE APPLICABLE NOW!
+
 There is an uneven number to the dataset, which shouldn't be considering the experimental setup. I have checked through the original data, and think I've found the mistake.
 
 Seems like I have no nutrient data for BSM 1-1-M, and HM 1-4- C, while I have two sets nutrient data for HM 1-2-C.
 
 ```{r}
-reveg_var %>%
-filter(
-    (Location == "HM" & Sublocation == "1" & Block == "2" & t_year == "0" & Treatment %in% c("C", "M")) |
-    (Location == "HM" & Sublocation == "1" & Block == "4" & t_year == "0" & Treatment %in% c("C", "M"))
-    ) %>%
-      select(c("Location", "Sublocation", "Block", "Treatment", NO3_N:Cd))
-
+# reveg_var %>%
+# filter(
+#     (Location == "HM" & Sublocation == "1" & Block == "2" & t_year == "0" & Treatment %in% c("C", "M")) |
+#     (Location == "HM" & Sublocation == "1" & Block == "4" & t_year == "0" & Treatment %in% c("C", "M"))
+#     ) %>%
+#       select(c("Location", "Sublocation", "Block", "Treatment", NO3_N:Cd))
+# 
 
 ```
 
@@ -54,27 +63,27 @@ Based on that all other nutrient levels are quite similar and the levels of Fe s
 I'll have to move the nutrient values from HM1-2-C to HM1-4-C and delete the second entry for HM1-2-C
 
 ```{r}
-# Identify the row with nutrient values that need to be transferred (Block == 2 and NH4_N == 13)
-nutrient_row <- reveg_var %>%
-  filter(Location == "HM", Sublocation == 1, Block == 2, Treatment == "C", t_year == 0, NH4_N == 13)
-
-# Identify the row with Block == 4 that needs to receive these nutrient values
-block_4_row <- reveg_var %>%
-  filter(Location == "HM", Sublocation == 1, Block == 4, Treatment == "C", t_year == 0)
-
-# Transfer nutrient values (columns NO3_N:Cd) from Block == 2 to Block == 4
-# Select the nutrient columns from nutrient_row and assign to block_4_row
-reveg_var <- reveg_var %>%
-  mutate(across(starts_with("NO3_N"):starts_with("Cd"), 
-                ~ ifelse(Location == "HM" & Sublocation == 1 & Block == 4 & Treatment == "C" & t_year == 0, 
-                         nutrient_row[[cur_column()]], .)))
-
-# Remove the row for Block == 2 that has the wrong information
-reveg_var <- reveg_var %>%
-  filter(!(Location == "HM" & Sublocation == 1 & Block == 2 & Treatment == "C" & t_year == 0 & NH4_N == 13))
-
-# Check if the row has been updated and deleted
-print(reveg_var)
+# # Identify the row with nutrient values that need to be transferred (Block == 2 and NH4_N == 13)
+# nutrient_row <- reveg_var %>%
+#   filter(Location == "HM", Sublocation == 1, Block == 2, Treatment == "C", t_year == 0, NH4_N == 13)
+# 
+# # Identify the row with Block == 4 that needs to receive these nutrient values
+# block_4_row <- reveg_var %>%
+#   filter(Location == "HM", Sublocation == 1, Block == 4, Treatment == "C", t_year == 0)
+# 
+# # Transfer nutrient values (columns NO3_N:Cd) from Block == 2 to Block == 4
+# # Select the nutrient columns from nutrient_row and assign to block_4_row
+# reveg_var <- reveg_var %>%
+#   mutate(across(starts_with("NO3_N"):starts_with("Cd"), 
+#                 ~ ifelse(Location == "HM" & Sublocation == 1 & Block == 4 & Treatment == "C" & t_year == 0, 
+#                          nutrient_row[[cur_column()]], .)))
+# 
+# # Remove the row for Block == 2 that has the wrong information
+# reveg_var <- reveg_var %>%
+#   filter(!(Location == "HM" & Sublocation == 1 & Block == 2 & Treatment == "C" & t_year == 0 & NH4_N == 13))
+# 
+# # Check if the row has been updated and deleted
+# print(reveg_var)
 ```
 
 Everything is now corrected.
@@ -82,7 +91,7 @@ Everything is now corrected.
 Saving the updated dataset
 
 ```{r}
-write.csv(reveg_var, file='../data/reveg_var.csv')
+#write.csv(reveg_var, file='../data/reveg_var.csv')
 ```
 
 ```{r}
@@ -797,20 +806,10 @@ print(pca_plot5)
 ## Soil temperatures
 
 ```{r}
-temp <- readr::read_delim('../data/soil_mean_season.csv',                                    
+temp <- readr::read_delim('../data/temp_mean_y0.csv',                                    
                          delim = ',',                                   
                          col_names = TRUE)
 
-```
-
-```{r}
-temp %>%
-  #filter(!is.na(Sphagnum)) %>%  # Exclude NA values in the Sphagnum column
-  ggplot(aes(x = soil_gs_mean)) +
-  geom_histogram(binwidth = 0.1, fill = "blue", color = "black", alpha = 0.7) +
-  labs(title = "Histogram of Soil Temperature Values",
-       x = "Temperature",
-       y = "Frequency")
 ```
 
 ### Density ridge plots
@@ -821,10 +820,10 @@ denplot_temp_mean <- ggplot(temp, aes(x = soil_gs_mean, y = Treatment, fill = Tr
     quantile_lines = TRUE, scale = 2, alpha = 1,
     vline_width = 0.2, vline_color = "black", rel_min_height = 0.01) +
   theme_minimal() +
-  labs(y = "Treatment", x = "Soil Temperature") +
+  labs(y = "Location", x = "Soil Temperature") +
   guides(fill = guide_legend(reverse = TRUE)) +
   scale_fill_brewer(palette="Dark2") +
-  facet_wrap(~Location)
+  facet_wrap(Location~.)
 
 
 #ggsave(denplot_temp, filename='../figures/densityplot_soil_temp_mean.png')
@@ -859,6 +858,60 @@ denplot_temp_min <- ggplot(temp, aes(x = soil_gs_min, y = Treatment, fill = Trea
 
 #ggsave(denplot_temp, filename='../figures/densityplot_soil_temp_mean.png')
 print(denplot_temp_min)
+```
+
+Include the temperature data in with the rest of the reveg for ordination
+
+```{r}
+#Join the two datasets
+temp <- temp %>%
+  mutate(Sublocation = as.character(Sublocation))
+
+reveg_var_pca_nut_temp <- reveg_var_pca_nut %>%
+  full_join(temp, by = c('Location', 'Sublocation', 'Block', 'Treatment'))
+```
+
+## BRMS with temp vs treatment
+
+Is there a significant difference in max and min temp over treatment?
+
+```{r}
+temp_max_brm<-   brm(soil_gs_max ~ Treatment + (1 | Location/Sublocation),
+                   data=temp,
+                 family= gaussian(), #Gaussian familiy for continious data
+                chains = 4, # nb of chains
+                 iter = 4000, # nb of iterations, including burnin
+                 warmup = 1000, # burnin
+                control = list(adapt_delta = 0.99, max_treedepth = 15))
+              
+
+saveRDS(temp_max_brm, 'RDS-files/temp_max.RDS')
+#readRDS(H1.Sph.beta.revWT, 'RDS-files/H1.Sph.beta.revWT.RDS')
+```
+
+```{r}
+summary(temp_max_brm)
+```
+
+```{r}
+plot(temp_max_brm)
+```
+
+```{r}
+temp_min_brm<-   brm(soil_gs_min ~ Treatment + (1 | Location/Sublocation),
+                   data=temp,
+                 family= gaussian(), #Gaussian familiy for continious data
+                chains = 4, # nb of chains
+                 iter = 4000, # nb of iterations, including burnin
+                 warmup = 1000, # burnin
+                control = list(adapt_delta = 0.99, max_treedepth = 15))
+              
+
+saveRDS(temp_min_brm, 'RDS-files/temp_min.RDS')
+```
+
+```{r}
+summary(temp_min_brm)
 ```
 
 # NMDS Ordination
@@ -1204,6 +1257,191 @@ print(nmds_plot_CM_t)
 
 ```{r}
 ggsave(nmds_plot_CM_t, filename="../figures/nmds_plot_CM_t.png")
+```
+
+## NMDS with temp included
+
+```{r}
+# Step 1: Prepare the Data
+# Filter out rows with any NA values in the relevant columns
+filtered_data <- reveg_var_pca_nut_temp %>%
+  filter(complete.cases(across(Sphagnum:mean_soil_gs_min))) %>%
+  select(-c(Mulch, Bare_peat, Litter, Dead_wood, year, Dead_sph))
+
+# Remove columns with zero variance
+non_zero_var_columns <- filtered_data %>%
+  select(Sphagnum:mean_soil_gs_min) %>%
+  select(where(~ var(.) != 0))
+
+# Step 1: Log-transform only the variables where it's appropriate (optional)
+log_transformed_data <- non_zero_var_columns %>%
+  mutate(across(where(is.numeric), log1p))  # Apply log1p to avoid zero/negative issues
+
+# Step 2: Min-max scale the log-transformed data to keep all values between 0 and 1
+normalized_data <- log_transformed_data %>%
+  mutate(across(everything(), ~ (. - min(.)) / (max(.) - min(.))))
+
+# Extract the numeric matrix for NMDS
+full_matrix <- as.matrix(normalized_data)
+
+# Step 2: Perform NMDS
+# We use Bray-Curtis distance, but you can change this if needed
+set.seed(123)  # Set a seed for reproducibility
+nmds_result_nut_temp <- metaMDS(full_matrix, distance = "bray", k = 3, trymax = 100)
+
+# Step 3: Extract and Bind Scores
+# Extract NMDS scores for each site (rows)
+nmds_scores_nut_temp <- as_tibble(scores(nmds_result_nut_temp, display = "sites")) %>%
+  bind_cols(filtered_data %>% select(Location, Treatment, Sublocation, Block))
+
+
+# Step 4: Correct Line Connections
+# Ensure that each C is connected only to its corresponding M within the same block
+nmds_scores_nut_temp <- nmds_scores_nut_temp %>%
+  arrange(Location, Sublocation, Block, Treatment)
+
+# Create a new dataframe to explicitly pair Treatment C and M within each Block
+paired_lines_nut_temp <- nmds_scores_nut_temp %>%
+  group_by(Location, Sublocation, Block) %>%
+  filter(n() == 2) %>%  # Ensure there are exactly two points (C and M) per Block
+  ungroup()
+
+
+```
+
+```{r}
+# Step 5: Plot NMDS with Corrected Legends and Connect Blocks
+nmds_plot_nut_temp <- ggplot(nmds_scores_nut_temp, aes(x = NMDS1, y = NMDS2)) +
+  geom_point(aes(fill = Treatment, shape = Location), size = 2, alpha = 0.7, color = "black") +
+  geom_line(data = paired_lines_nut_temp, aes(group = interaction(Location, Sublocation, Block)), linetype = "dashed", alpha = 0.8, size = 0.3) +  # Increase line size to make overlapping lines more visible
+    # Add transparency to points to distinguish overlapping points, Use fill instead of color
+  stat_ellipse(aes(group = Location, color = Location), type = "norm", level = 0.95, show.legend = TRUE) +
+  labs(
+       x = "NMDS1",
+       y = "NMDS2",
+       color = "Location",
+       fill = "Treatment",
+       shape = "Location"
+  ) +
+  theme_minimal() +
+     theme(legend.position = 'top') +
+    coord_cartesian(xlim = c(-0.6, 0.6), ylim = c(-0.7, 0.6)) +
+  scale_fill_manual(values = c("C" = "brown", "M" = "yellow")) + scale_shape_manual(values = c("BSM" = 21, "HM" = 22, "VSM"=24)) +  # Use manual fill scale for categorical Treatment
+  guides(
+    color = guide_legend(order = 1, override.aes = list(linetype = "solid", size = 3)),  # Show color for both lines and ellipses in Location
+    shape = guide_legend(order = 1),  # Include shapes in Location legend
+    fill = guide_legend(order = 2, override.aes = list(fill = c("brown", "yellow"), shape = 21, size = 3)) # Include fill in Treatment legend
+  )
+
+# Print the plot
+print(nmds_plot_nut_temp)
+
+```
+
+```{r}
+
+# Fit environmental vectors onto the NMDS ordination
+envfit_result_nut_temp <- envfit(nmds_result_nut_temp, full_matrix, permutations = 999)
+
+# Extract the vectors and p-values from the envfit result
+vectors_nut_temp <- scores(envfit_result_nut_temp, display = "vectors")
+pvals_nut_temp <- envfit_result_nut_temp$vectors$pvals
+
+# Filter only significant vectors (e.g., p < 0.05)
+significant_vectors_nut_temp <- vectors_nut_temp[pvals_nut_temp < 0.05, , drop = FALSE]
+
+#Extract environmental scores for ggplot
+envfit_vectors_nut_temp_s <- as.data.frame(significant_vectors_nut_temp)
+envfit_vectors_nut_temp_s$variables <- rownames(envfit_vectors_nut_temp_s)
+
+
+# Change the label of a specific environmental vector
+envfit_vectors_nut_temp_s <- envfit_vectors_nut_temp_s %>%
+  mutate(variables = ifelse(variables == "mean_soil_gs_min", "Min Temp", variables))
+
+# Create a plot for environmental vectors
+env_plot_nut_temp_s <- ggplot(envfit_vectors_nut_temp_s, aes(x = NMDS1, y = NMDS2)) +
+  geom_segment(aes(x = 0, y = 0, xend = NMDS1, yend = NMDS2), 
+               arrow = arrow(length = unit(0.2, "cm")), color = "darkblue", alpha = 0.7, size = 0.3) +
+  geom_text_repel(aes(x = NMDS1, y = NMDS2, label = variables), size = 3) +
+  labs(
+       x = "NMDS1",
+       y = "NMDS2"
+  ) +
+  coord_cartesian(xlim = c(-0.6, 0.6), ylim = c(-0.7, 0.6)) +
+  theme_minimal() +
+  theme(plot.margin = margin(t = 30, r = 5, b = 5, l = 5))
+
+# Print the environmental vector plot
+print(env_plot_nut_temp_s)
+```
+
+```{r}
+nmds_CM_env_s <- grid.arrange(nmds_plot_nut_temp, env_plot_nut_temp_s, nrow = 2)
+
+print(nmds_CM_env_s)
+
+ggsave(nmds_CM_env_s, filename='../figures/nmds_CM_env_all.png')
+```
+
+```{r}
+nmds_plot_CM_t <- ggplot(nmds_scores_nut_temp, aes(x = NMDS1, y = NMDS2)) +
+  geom_point(aes(fill = Treatment, shape = Location), size = 2, alpha = 0.7, color = "black") +
+  geom_line(data = paired_lines_nut_temp, aes(group = interaction(Location, Sublocation, Block)), 
+            linetype = "dashed", alpha = 0.8, size = 0.3) +
+  stat_ellipse(aes(group = interaction(Location, Treatment), color = Location, linetype = Treatment), 
+               type = "norm", level = 0.95, show.legend = TRUE) +
+  labs(
+    x = "NMDS1",
+    y = "NMDS2",
+    color = "Location",
+    fill = "Treatment",
+    shape = "Location",
+    linetype = "Treatment"
+  ) +
+  theme_minimal() +
+  theme(legend.position = 'top') +
+  coord_cartesian(xlim = c(-0.7, 0.7), ylim = c(-0.8, 0.7)) +
+  scale_fill_manual(values = c("C" = "brown", "M" = "yellow")) + 
+  scale_shape_manual(values = c("BSM" = 21, "HM" = 22, "VSM" = 24)) +
+  guides(
+    color = guide_legend(order = 1, override.aes = list(linetype = "solid", size = 3)),
+    shape = guide_legend(order = 1),
+    fill = guide_legend(order = 2, override.aes = list(fill = c("brown", "yellow"), shape = 21, size = 3)),
+    linetype = guide_legend(order = 3)
+  )
+
+# Print the plot
+print(nmds_plot_CM_t)
+
+```
+
+```{r}
+# Create a plot for environmental vectors
+env_plot_nut_temp_CM <- ggplot(envfit_vectors_nut_temp_s, aes(x = NMDS1, y = NMDS2)) +
+  geom_segment(aes(x = 0, y = 0, xend = NMDS1, yend = NMDS2), 
+               arrow = arrow(length = unit(0.2, "cm")), color = "darkblue", alpha = 0.7, size = 0.3) +
+  geom_text_repel(aes(x = NMDS1, y = NMDS2, label = variables), size = 3) +
+  labs(
+       x = "NMDS1",
+       y = "NMDS2"
+  ) +
+  coord_cartesian(xlim = c(-0.7, 0.7), ylim = c(-0.8, 0.7)) +
+  theme_minimal() +
+  theme(plot.margin = margin(t = 30, r = 5, b = 5, l = 5))
+
+# Print the environmental vector plot
+print(env_plot_nut_temp_CM)
+```
+
+```{r}
+nmds_CM_env_st <- grid.arrange(nmds_plot_CM_t, env_plot_nut_temp_CM, nrow = 2)
+
+print(nmds_CM_env_st)
+```
+
+```{r}
+ggsave(nmds_CM_env_st, filename='../figures/nmds_CM_env_all_split.png')
 ```
 
 ## NMDS plot PTFs all treatments

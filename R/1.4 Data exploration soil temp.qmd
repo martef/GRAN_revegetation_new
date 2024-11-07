@@ -110,13 +110,7 @@ soil <- soil %>%
 filter(year(DateTime) !="2023")
 ```
 
-### Statistically
-
-How do I test this best? With all data included or aggregated down to month or similar?
-
-Soil temp \~Treatment ?
-
-As simple as that? Is this a linear regression?
+### Histogram
 
 ```{r}
 # Manual specification of breakpoints
@@ -147,6 +141,8 @@ hist(soil_growth$Temp, breaks = breaks, xlab = "Temperatures")
 ```
 
 Way better!
+
+Exporting the growth season data.
 
 ```{r}
 write.csv(soil_growth, file="../data/soil_growth.csv")
@@ -205,6 +201,113 @@ soil_mean_season
 #write.csv(soil_mean_season, file='../data/soil_mean_season.csv')
 ```
 
+# Daily fluctuations
+
+```{r}
+# Calculate daily temperature fluctuations 
+soil_growth_fluctuations <- soil_growth %>%   mutate(Date = as.Date(DateTime)) %>%  # Extract date from DateTime   
+  group_by(Location, Sublocation, Block, Treatment, Date) %>%  # Group by Location, Sublocation, Block, Treatment, and Date   
+  summarise(     Temp_max = max(Temp, na.rm = TRUE),  # Calculate daily max temperature     
+                 Temp_min = min(Temp, na.rm = TRUE),  # Calculate daily min temperature     
+                 Temp_fluctuation = Temp_max - Temp_min  # Calculate daily fluctuation   
+                 ) %>%   
+  ungroup()  # Ungroup the data 
+
+#Subset the data for specific years and locations 
+soil_growth_fluctuations_subset <- soil_growth_fluctuations %>%   
+  filter(     (Location %in% c("HM", "VSM") & year(Date) == 2020) |     (Location == "BSM" & year(Date) == 2021)   
+              )  
+
+# View the result 
+glimpse(soil_growth_fluctuations_subset)  
+```
+
+```{r}
+soil_plot3 <- soil_growth_fluctuations_subset %>%     
+  ggplot(aes(x = Date, y = Temp_fluctuation, color=Treatment)) +     
+  geom_line(na.rm = TRUE) +     
+  labs(x = "Date",          
+       y = "Temp fluctuation") +    
+  theme_minimal()+    
+  facet_wrap(Location~Sublocation~Block)    
+
+soil_plot3
+```
+
+The logger at HM2-1 is not responding the same as the others. I have to conclude that this one has not recorded correctly, and will remove it as an outlier. This also means I have to go back to edit the max,min,mean dataset.
+
+```{r}
+soil_growth_fluctuations_subset <- soil_growth_fluctuations_subset %>%   
+  filter(!(Location == "HM" & Sublocation == "2" & Block == "1"))  # Remove specific outlier
+```
+
+```{r}
+# Summary per Location/Sublocation/Block/Treatment 
+summary_location_sublocation_block_treatment <- soil_growth_fluctuations_subset %>%   
+  group_by(Location, Sublocation, Block, Treatment) %>%   
+  summarise(     Avg_Temp_Fluctuation = mean(Temp_fluctuation, na.rm = TRUE),     
+                 Max_Temp_Fluctuation = max(Temp_fluctuation, na.rm = TRUE),     
+                 Min_Temp_Fluctuation = min(Temp_fluctuation, na.rm = TRUE)   )  
+
+#Summary per Location/Sublocation/Treatment 
+summary_location_sublocation_treatment <- soil_growth_fluctuations_subset %>%   
+  group_by(Location, Sublocation, Treatment) %>%   
+  summarise(     Avg_Temp_Fluctuation = mean(Temp_fluctuation, na.rm = TRUE),     
+                 Max_Temp_Fluctuation = max(Temp_fluctuation, na.rm = TRUE),     
+                 Min_Temp_Fluctuation = min(Temp_fluctuation, na.rm = TRUE)   )   
+
+# Summary by Treatment 
+summary_treatment <- soil_growth_fluctuations_subset %>%   
+  group_by(Treatment) %>%   
+  summarise(     Avg_Temp_Fluctuation = mean(Temp_fluctuation, na.rm = TRUE),     
+                 Max_Temp_Fluctuation = max(Temp_fluctuation, na.rm = TRUE),     
+                 Min_Temp_Fluctuation = min(Temp_fluctuation, na.rm = TRUE)   )  
+
+# View the summaries 
+print(summary_location_sublocation_block_treatment) 
+print(summary_location_sublocation_treatment) 
+print(summary_treatment) 
+```
+
+## Plot
+
+```{r}
+soil_plot4 <- soil_growth_fluctuations_subset %>%     
+  ggplot(aes(x = Date, y = Temp_fluctuation, color=Treatment)) +     
+  geom_line(na.rm = TRUE) +     
+  labs(x = "Date",          
+       y = "Temp fluctuation") +     
+  theme_minimal()+    
+  facet_wrap(Location~Sublocation)    
+
+soil_plot4
+```
+
+## Edit the soil mean season dataset to remove outlier, only include first growth season, and add fluctuations
+
+```{r}
+
+#Subset dataset
+temp_y0 <- soil_growth %>%   
+  filter(!(Location == "HM" & Sublocation == "2" & Block == "1")) %>% # Remove specific outlier
+  filter(     
+    (Location %in% c("HM", "VSM") & year(DateTime) == 2020) |     (Location == "BSM" & year(DateTime) == 2021))   #Subset the data for specific years and locations 
+              
+temp_mean_y0 <-temp_y0 %>%
+  group_by(Location, Sublocation, Block, Treatment, Logger_ID, year)%>%
+  summarise_by_time(.date_var=DateTime,
+                    .by="year", soil_gs_mean = mean(Temp), soil_gs_max = max(Temp), soil_gs_min = min(Temp) )
+temp_mean_y0
+
+#Add the fluctuation data
+
+temp_mean_y0 <- temp_mean_y0 %>%
+  full_join(summary_location_sublocation_block_treatment, by = c('Location', 'Sublocation', 'Block', 'Treatment'))
+
+temp_mean_y0
+write.csv(temp_mean_y0, file='../data/temp_mean_y0.csv')
+```
+
 ## Summary
 
 ```{r}
@@ -216,15 +319,21 @@ se <- function(x) {
 
 ```{r}
 #Overall summary by Treatment
-overall_summary <- soil_mean_season %>%
+overall_summary <- temp_mean_y0 %>%
   group_by(Treatment) %>%
   summarise(
-    mean_soil_gs_mean = mean(soil_gs_mean, na.rm = TRUE),
-    se_soil_gs_mean = se(soil_gs_mean),
-    mean_soil_gs_max = mean(soil_gs_max, na.rm = TRUE),
-    se_soil_gs_max = se(soil_gs_max),
-    mean_soil_gs_min = mean(soil_gs_min, na.rm = TRUE),
-    se_soil_gs_min = se(soil_gs_min)
+    temp_mean = mean(soil_gs_mean, na.rm = TRUE),
+    se_temp_mean = se(soil_gs_mean),
+    temp_max = mean(soil_gs_max, na.rm = TRUE),
+    se_temp_max = se(soil_gs_max),
+    temp_min = mean(soil_gs_min, na.rm = TRUE),
+    se_temp_min = se(soil_gs_min),
+    fluc_mean = mean(Avg_Temp_Fluctuation, na.rm=TRUE),
+    se_fluc_mean = se(Avg_Temp_Fluctuation),
+    fluc_min = mean(Min_Temp_Fluctuation, na.rm=TRUE),
+    se_fluc_min = se(Min_Temp_Fluctuation),
+    fluc_max = mean(Max_Temp_Fluctuation, na.rm=TRUE),
+    se_fluc_max = se(Max_Temp_Fluctuation)    
   )
 
 print(overall_summary)
@@ -232,15 +341,21 @@ print(overall_summary)
 
 ```{r}
 #Summary by Location and Treatment
-location_summary <- soil_mean_season %>%
+location_summary <- temp_mean_y0 %>%
   group_by(Location, Treatment) %>%
   summarise(
-    mean_soil_gs_mean = mean(soil_gs_mean, na.rm = TRUE),
-    se_soil_gs_mean = se(soil_gs_mean),
-    mean_soil_gs_max = mean(soil_gs_max, na.rm = TRUE),
-    se_soil_gs_max = se(soil_gs_max),
-    mean_soil_gs_min = mean(soil_gs_min, na.rm = TRUE),
-    se_soil_gs_min = se(soil_gs_min)
+    temp_mean = mean(soil_gs_mean, na.rm = TRUE),
+    se_temp_mean = se(soil_gs_mean),
+    temp_max = mean(soil_gs_max, na.rm = TRUE),
+    se_temp_max = se(soil_gs_max),
+    temp_min = mean(soil_gs_min, na.rm = TRUE),
+    se_temp_min = se(soil_gs_min),
+    fluc_mean = mean(Avg_Temp_Fluctuation, na.rm=TRUE),
+    se_fluc_mean = se(Avg_Temp_Fluctuation),
+    fluc_min = mean(Min_Temp_Fluctuation, na.rm=TRUE),
+    se_fluc_min = se(Min_Temp_Fluctuation),
+    fluc_max = mean(Max_Temp_Fluctuation, na.rm=TRUE),
+    se_fluc_max = se(Max_Temp_Fluctuation)    
   )
 
 print(location_summary)
@@ -248,15 +363,21 @@ print(location_summary)
 
 ```{r}
 #Summary by Location and Treatment
-location_summary <- soil_mean_season %>%
+location_summary <- temp_mean_y0 %>%
   group_by(Location, Treatment, Sublocation) %>%
   summarise(
-    mean_soil_gs_mean = mean(soil_gs_mean, na.rm = TRUE),
-    se_soil_gs_mean = se(soil_gs_mean),
-    mean_soil_gs_max = mean(soil_gs_max, na.rm = TRUE),
-    se_soil_gs_max = se(soil_gs_max),
-    mean_soil_gs_min = mean(soil_gs_min, na.rm = TRUE),
-    se_soil_gs_min = se(soil_gs_min)
+    temp_mean = mean(soil_gs_mean, na.rm = TRUE),
+    se_temp_mean = se(soil_gs_mean),
+    temp_max = mean(soil_gs_max, na.rm = TRUE),
+    se_temp_max = se(soil_gs_max),
+    temp_min = mean(soil_gs_min, na.rm = TRUE),
+    se_temp_min = se(soil_gs_min),
+    fluc_mean = mean(Avg_Temp_Fluctuation, na.rm=TRUE),
+    se_fluc_mean = se(Avg_Temp_Fluctuation),
+    fluc_min = mean(Min_Temp_Fluctuation, na.rm=TRUE),
+    se_fluc_min = se(Min_Temp_Fluctuation),
+    fluc_max = mean(Max_Temp_Fluctuation, na.rm=TRUE),
+    se_fluc_max = se(Max_Temp_Fluctuation) 
   )
 
 print(location_summary)
