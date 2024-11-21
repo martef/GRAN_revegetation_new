@@ -35,8 +35,7 @@ reveg_var <- readr::read_delim('../data/reveg_var.csv',
 reveg_var <- reveg_var %>% 
   select( -1) %>%
   mutate_at(c('year', 'month', 'Location', 'Sublocation', 'Block', 'Treatment_ID', 'Treatment', 'Name', 'Station_ID'), as.factor) %>%
-  select('Date','year','month', 'Name','Location','Sublocation', 'Block', 'Treatment', 'Treatment_ID', 'Station_ID', everything()) %>%
-  rename(WT_consecutive_days_below = consecutive_days_count, WT_total_days_below=total_days, WT_mean=gs_mean, WT_max=gs_max, WT_min=gs_min)
+  select('Date','year','month', 'Name','Location','Sublocation', 'Block', 'Treatment', 'Treatment_ID', 'Station_ID', everything())
 ```
 
 UPDATE! THIS IS NOW FIXED IN THE DATASET AND WILL NOT BE APPLICABLE NOW!
@@ -101,8 +100,8 @@ reveg_var <- reveg_var %>%
   mutate(Shrubs_Trees = Trees + Bushes + Bet_nan,   # combine Trees, Bushes, and Bet_nan into Shrubs_Trees          
          Carex = Carex + Rhynchospora,       # join Rhyncospora into Carex          
          Herbs = Herbs + Oxycoccus + Drosera, # join Oxycoccus and Drosera into Herbs          
-         Other_bryophytes = Other_mosses + Racomitrium)    %>%         
-  select(-Trees, -Bushes, -Bet_nan, -Rhynchospora, -Oxycoccus, -Drosera, -Other_mosses, -Racomitrium)  %>% # remove the old columns   
+         Other_mosses = Other_mosses + Racomitrium)    %>%         
+  select(-Trees, -Bushes, -Bet_nan, -Rhynchospora, -Oxycoccus, -Drosera, -Racomitrium)  %>% # remove the old columns   
   relocate(Shrubs_Trees, .after = Seedlings)  
 ```
 
@@ -162,16 +161,16 @@ reveg_var_pca_nut_all <- reveg_fg_y3 %>%
   full_join(reveg_nut, by=c('Location', 'Sublocation', 'Block', 'Treatment', 'Treatment_ID'))
 ```
 
-## Density ridge plots FTGs
+## Density ridge plots PFTs
 
 ```{r}
 #Subset to a set of the more dominant FTGs
 reveg_var_long_fg_sub <- reveg_var_long_fg %>%
-  filter(functional_group %in% c("Trichophorum", "Sphagnum", "Polytrichum", "Other_bryophytes", "Narthecium", "Liverworts", "Ericoids", "Eriophorum"))
+  filter(functional_group %in% c("Trichophorum", "Sphagnum", "Polytrichum", "Other_mosses", "Narthecium", "Liverworts", "Ericoids", "Eriophorum"))
 
 # Reverse the order of the functional_group
 reveg_var_long_fg_sub <- reveg_var_long_fg_sub %>%
-  mutate(functional_group=factor(functional_group, levels = rev(c("Trichophorum", "Sphagnum", "Polytrichum", "Other_bryophytes", "Narthecium", "Liverworts", "Ericoids", "Eriophorum"))),
+  mutate(functional_group=factor(functional_group, levels = rev(c("Trichophorum", "Sphagnum", "Polytrichum", "Other_mosses", "Narthecium", "Liverworts", "Ericoids", "Eriophorum"))),
                               Treatment = factor(Treatment, 
                             levels = c("C", "M", "S", "R")))
 
@@ -1265,15 +1264,15 @@ ggsave(nmds_plot_CM_t, filename="../figures/nmds_plot_CM_t.png")
 # Step 1: Prepare the Data
 # Filter out rows with any NA values in the relevant columns
 filtered_data <- reveg_var_pca_nut_temp %>%
-  filter(complete.cases(across(Sphagnum:mean_soil_gs_min))) %>%
-  select(-c(Mulch, Bare_peat, Litter, Dead_wood, year, Dead_sph))
+  filter(complete.cases(across(Sphagnum:Min_Temp_Fluctuation))) %>%
+  select(-c(Mulch, Bare_peat, Litter, Dead_wood, year, Dead_sph, DateTime, Logger_ID, ...1))
 
 # Remove columns with zero variance
 non_zero_var_columns <- filtered_data %>%
-  select(Sphagnum:mean_soil_gs_min) %>%
+  select(Sphagnum:Min_Temp_Fluctuation) %>%
   select(where(~ var(.) != 0))
 
-# Step 1: Log-transform only the variables where it's appropriate (optional)
+# Step 1: Log-transform 
 log_transformed_data <- non_zero_var_columns %>%
   mutate(across(where(is.numeric), log1p))  # Apply log1p to avoid zero/negative issues
 
@@ -1307,6 +1306,10 @@ paired_lines_nut_temp <- nmds_scores_nut_temp %>%
   ungroup()
 
 
+```
+
+```{r}
+stressplot(nmds_result_nut_temp)
 ```
 
 ```{r}
@@ -1357,7 +1360,13 @@ envfit_vectors_nut_temp_s$variables <- rownames(envfit_vectors_nut_temp_s)
 
 # Change the label of a specific environmental vector
 envfit_vectors_nut_temp_s <- envfit_vectors_nut_temp_s %>%
-  mutate(variables = ifelse(variables == "mean_soil_gs_min", "Min Temp", variables))
+  mutate(variables = case_when(variables == "soil_gs_min"~ "Min temp", 
+                            variables == "soil_gs_mean"~ "Mean temp",
+                            variables == "soil_gs_max"~ "Max temp",
+                            variables == "Max_Temp_Fluctuation"~ "Max Temp Fluctuation",
+                            variables == "Min_Temp_Fluctuation"~ "Min Temp Fluctuation",
+                            variables == "Avg_Temp_Fluctuation"~ "Mean Temp Fluctuation",
+                            TRUE ~ variables))
 
 # Create a plot for environmental vectors
 env_plot_nut_temp_s <- ggplot(envfit_vectors_nut_temp_s, aes(x = NMDS1, y = NMDS2)) +
@@ -1381,7 +1390,7 @@ nmds_CM_env_s <- grid.arrange(nmds_plot_nut_temp, env_plot_nut_temp_s, nrow = 2)
 
 print(nmds_CM_env_s)
 
-ggsave(nmds_CM_env_s, filename='../figures/nmds_CM_env_all.png')
+ggsave(nmds_CM_env_s, filename='../figures/nmds_CM_env_all2.png', height=8, width=6)
 ```
 
 ```{r}
@@ -1441,7 +1450,7 @@ print(nmds_CM_env_st)
 ```
 
 ```{r}
-ggsave(nmds_CM_env_st, filename='../figures/nmds_CM_env_all_split.png')
+ggsave(nmds_CM_env_st, filename='../figures/nmds_CM_env_all_split2.png')
 ```
 
 ## NMDS plot PTFs all treatments
@@ -1460,20 +1469,28 @@ non_zero_var_columns2 <- filtered_data_pft %>%
   select(Sphagnum:Shrubs_Trees) %>%
   select(where(~ var(.) != 0))
 
-# Extract the numeric matrix for NMDS
-full_matrix2 <- as.matrix(non_zero_var_columns2)
+# Step 1: Log-transform 
+log_transformed_data2 <- non_zero_var_columns2 %>%
+  mutate(across(where(is.numeric), log1p))  # Apply log1p to avoid zero/negative issues
 
-# Step 2: Perform NMDS
+# Step 2: Min-max scale the log-transformed data to keep all values between 0 and 1
+normalized_data2 <- log_transformed_data2 %>%
+  mutate(across(everything(), ~ (. - min(.)) / (max(.) - min(.))))
+
+# Extract the numeric matrix for NMDS
+full_matrix2 <- as.matrix(normalized_data2)
+
+# Step 3: Perform NMDS
 # We use Bray-Curtis distance, but you can change this if needed
 set.seed(125)  # Set a seed for reproducibility
 nmds_result2 <- metaMDS(full_matrix2, distance = "bray", k = 2, trymax = 100)
 
-# Step 3: Extract and Bind Scores
+# Step 4: Extract and Bind Scores
 # Extract NMDS scores for each site (rows)
 nmds_scores2 <- as_tibble(scores(nmds_result2, display = "sites")) %>%
   bind_cols(filtered_data_pft %>% select(Location, Treatment, Sublocation, Block))
 
-# Step 4: Correct Line Connections
+# Step 5: Correct Line Connections
 nmds_scores2 <- nmds_scores2 %>%
   arrange(Location, Sublocation, Block, Treatment)
 
@@ -1554,7 +1571,7 @@ nmds_plot3 <- ggplot(nmds_scores3, aes(x = NMDS1, y = NMDS2)) +
   ) +
   theme_minimal() +
   theme(legend.position = 'top') +
-    coord_cartesian(xlim = c(-1, 1.55), ylim = c(-1.4, 1.25)) +
+    coord_cartesian(xlim = c(-1.6, 1), ylim = c(-1.4, 1.4)) +
    scale_fill_manual(values = c("C" = "brown", "M" = "yellow", "S" = "darkgreen", "R" = "magenta")) + 
   scale_color_manual(values = c("C" = "brown", "M" = "yellow", "S" = "darkgreen", "R" = "magenta")) +
   scale_shape_manual(values = c("BSM" = 21, "HM" = 22, "VSM" = 24)) +  # Use manual fill scale for categorical Treatment
@@ -1605,7 +1622,7 @@ print(nmds_plot4)
 # Assume envfit_result is the output from envfit() function
 envfit_result3 <- envfit(nmds_result3, full_matrix2, permutations = 999)
 envfit_vectors3 <- as.data.frame(scores(envfit_result3, display = "vectors"))
-envfit_vectors3$variables <- rownames(env_vectors3)
+envfit_vectors3$variables <- rownames(envfit_vectors3)
 
 # Create a plot for environmental vectors
 env_plot3 <- ggplot(envfit_vectors3, aes(x = NMDS1, y = NMDS2)) +
@@ -1633,7 +1650,7 @@ envfit_vectors_scaled <- envfit_vectors3 %>% mutate(NMDS1 = NMDS1 * 2, NMDS2 = N
 # Create a plot for environmental vectors
 env_plot3b <- ggplot(envfit_vectors_scaled, aes(x = NMDS1, y = NMDS2)) +
   geom_segment(aes(x = 0, y = 0, xend = NMDS1, yend = NMDS2), 
-               arrow = arrow(length = unit(0.3, "cm")), color = "darkblue", alpha = 0.7, size = 0.3) +
+               arrow = arrow(length = unit(0.2, "cm")), color = "darkblue", alpha = 0.7, size = 0.3) +
   geom_text_repel(aes(x = NMDS1, y = NMDS2, label = variables), size = 3) +
   labs(
        x = "NMDS1",
@@ -1651,6 +1668,8 @@ nmds_pft_env2 <- grid.arrange(nmds_plot3, env_plot3, nrow = 2)
 
 print(nmds_pft_env2)
 ```
+
+Only use significant vectors
 
 ```{r}
 # Extract the vectors and p-values from the envfit result
@@ -1737,3 +1756,31 @@ print(nmds_plot3)
 ```
 
 The clusters groups very close to the grouping of R, S and M + C.
+
+# Combined NMDS figure; both plots
+
+```{r}
+
+# Create two text labels for A and B
+label_A <- textGrob("A", x = unit(0.05, "npc"), y = unit(0.95, "npc"), just = c("left", "top"), gp = gpar(fontsize = 16, fontface = "bold"))
+label_B <- textGrob("B", x = unit(0.05, "npc"), y = unit(0.95, "npc"), just = c("left", "top"), gp = gpar(fontsize = 16, fontface = "bold"))
+
+# Arrange the plots with labels included
+plot_A <- arrangeGrob(nmds_pft_env2_s, top = label_A)
+plot_B <- arrangeGrob(nmds_CM_env_s, top = label_B)
+
+# Add extra space above the combined plot
+extra_space <- grid::nullGrob()  # An empty grob to add some space
+
+combined_nmds_plot <- grid.arrange(
+  extra_space,  # Add extra space above
+  plot_A, plot_B,
+  ncol = 2,  # Arrange everything in one column first
+  layout_matrix = rbind(c(1), c(2, 3)),  # Specify the layout to create space above
+  heights = c(0.05, 1)  # Adjust the height: 0.2 for extra space, 1 for the plots
+)
+
+# Save the combined plot
+ggsave(combined_nmds_plot, filename='../figures/combined_nmds_plot.png', height = 20, width = 30, unit="cm")
+
+```

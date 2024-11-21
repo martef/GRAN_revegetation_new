@@ -12,6 +12,9 @@ library(tidyverse)
 library(lubridate)
 library(readr)
 library(timetk)
+library(gridExtra)
+library(grid)
+library(ggplot2)
 
 ```
 
@@ -171,7 +174,7 @@ soil_daily <- soil_growth %>%
                     .by="day",
                     daily_mean = mean(Temp), daily_max = max(Temp), daily_min= min(Temp))
 
-write.csv(soil_daily, file="../data/soil_daily.csv")
+#write.csv(soil_daily, file="../data/soil_daily.csv")
 soil_daily
 
 
@@ -305,7 +308,7 @@ temp_mean_y0 <- temp_mean_y0 %>%
   full_join(summary_location_sublocation_block_treatment, by = c('Location', 'Sublocation', 'Block', 'Treatment'))
 
 temp_mean_y0
-write.csv(temp_mean_y0, file='../data/temp_mean_y0.csv')
+#write.csv(temp_mean_y0, file='../data/temp_mean_y0.csv')
 ```
 
 ## Summary
@@ -381,4 +384,217 @@ location_summary <- temp_mean_y0 %>%
   )
 
 print(location_summary)
+```
+
+## Violin plot fluctuations
+
+```{r}
+plot_temp_fluct <- soil_growth_fluctuations_subset %>%
+  ggplot(aes(x = Treatment, y = Temp_fluctuation, color = Treatment)) +   
+  geom_violin(scale = "width", width= 0.8, alpha=0.7) +   
+  geom_point(pch = 21, size=1, position = position_jitterdodge()) +
+  ylab("Temperature fluctuations") +
+  labs(fill= "Treatment") +
+  theme_minimal() +
+  scale_fill_brewer(palette="Dark2") +
+  scale_color_brewer(palette="Dark2") +
+  guides(color = "none")
+
+plot_temp_fluct
+```
+
+```{r}
+plot_temp_max <- soil_growth_fluctuations_subset %>%
+  ggplot(aes(x = Treatment, y = Temp_max, color = Treatment)) +   
+  geom_violin(scale = "width", width= 0.8, alpha=0.7) +   
+  geom_point(pch = 21, size=1, position = position_jitterdodge()) +
+  ylab("Temperature fluctuations") +
+  labs(fill= "Treatment") +
+  theme_minimal() +
+  scale_fill_brewer(palette="Dark2") +
+  scale_color_brewer(palette="Dark2") +
+  guides(color = "none")
+
+plot_temp_max
+```
+
+```{r}
+plot_temp_min <- soil_growth_fluctuations_subset %>%
+  ggplot(aes(x = Treatment, y = Temp_min, color = Treatment)) +   
+  geom_violin(scale = "width", width= 0.8, alpha=0.7) +   
+  geom_point(pch = 21, size=1, position = position_jitterdodge()) +
+  ylab("Temperature fluctuations") +
+  labs(fill= "Treatment") +
+  theme_minimal() +
+  scale_fill_brewer(palette="Dark2") +
+  scale_color_brewer(palette="Dark2") +
+  guides(color = "none")
+
+plot_temp_min
+```
+
+```{r}
+plot_temp_daily_min <- soil_daily %>%
+  ggplot(aes(x = Treatment, y = daily_min, color = Treatment)) +   
+  geom_violin(scale = "width", width= 0.8, alpha=0.7) +   
+  geom_point(pch = 21, size=1, position = position_jitterdodge()) +
+  ylab("Temperature fluctuations") +
+  labs(fill= "Treatment") +
+  theme_minimal() +
+  scale_fill_brewer(palette="Dark2") +
+  scale_color_brewer(palette="Dark2") +
+  guides(color = "none")
+
+plot_temp_daily_min
+```
+
+```{r}
+plot_temp_avg_fluc <- temp_mean_y0 %>%
+  ggplot(aes(x = Treatment, y = Avg_Temp_Fluctuation, color = Treatment)) +   
+  geom_violin(scale = "width", width= 0.8, alpha=0.7) +   
+  geom_point(pch = 21, size=1, position = position_jitterdodge()) +
+  theme_minimal() +
+  scale_fill_brewer(palette="Dark2") +
+  scale_color_brewer(palette="Dark2") +
+  guides(color = "none")+
+  theme(axis.title = element_blank())  # Remove x and y axis labels
+
+plot_temp_avg_fluc
+```
+
+```{r}
+plot_temp_max_fluc <- temp_mean_y0 %>%
+  ggplot(aes(x = Treatment, y = Max_Temp_Fluctuation, color = Treatment)) +   
+  geom_violin(scale = "width", width= 0.8, alpha=0.7) +   
+  geom_point(pch = 21, size=1, position = position_jitterdodge()) +
+  theme_minimal() +
+  scale_fill_brewer(palette="Dark2") +
+  scale_color_brewer(palette="Dark2") +
+  guides(color = "none")+
+  theme(axis.title = element_blank())  # Remove x and y axis labels
+
+plot_temp_max_fluc
+```
+
+```{r}
+plot_temp_min_fluc <- temp_mean_y0 %>%
+  ggplot(aes(x = Treatment, y = Min_Temp_Fluctuation, color = Treatment)) +   
+  geom_violin(scale = "width", width= 0.8, alpha=0.7) +   
+  geom_point(pch = 21, size=1, position = position_jitterdodge()) +
+  theme_minimal() +
+  scale_fill_brewer(palette="Dark2") +
+  scale_color_brewer(palette="Dark2") +
+  guides(color = "none")+
+  theme(axis.title = element_blank())  # Remove x and y axis labels
+
+plot_temp_min_fluc
+```
+
+##  Create combined violinplots figure
+
+```{r}
+# Create long format
+temp_long <- temp_mean_y0 %>%
+  pivot_longer(cols = c(Avg_Temp_Fluctuation, Max_Temp_Fluctuation, Min_Temp_Fluctuation),
+               names_to = "Fluctuation_Type",
+               values_to = "Fluctuation_Value")
+
+# Reorder the factor levels of Fluctuation_Type
+temp_long$Fluctuation_Type <- factor(temp_long$Fluctuation_Type, 
+                                     levels = c("Max_Temp_Fluctuation", "Avg_Temp_Fluctuation", "Min_Temp_Fluctuation"))
+```
+
+```{r}
+plot_temp_fluctuations <- temp_long %>%
+  ggplot(aes(x = Treatment, y = Fluctuation_Value, color = Treatment)) +
+  geom_violin(scale = "width", width = 0.8, alpha = 0.7) +
+  geom_point(pch = 21, size = 1, position = position_jitterdodge()) +
+  stat_summary(
+    fun = "mean", 
+    geom = "point", 
+    shape = 18,  # Using a filled diamond shape for visibility
+    size = 3,    # Adjust size to make it visible
+    color = "black"  # Use black color to make it distinct
+  ) +
+  theme_minimal() +
+  scale_fill_brewer(palette = "Dark2") +
+  scale_color_brewer(palette = "Dark2") +
+  guides(color = "none") +
+  labs(y = expression(Temperature~(degree*C))) +  # Add y-axis label with degree symbol
+  theme(
+    axis.title.x = element_blank(),  # Remove x-axis label
+    strip.text = element_text(size = 16, face = "bold", hjust = 0)  # Make facet labels larger, bold, and left-aligned
+  ) +
+  facet_wrap(~ Fluctuation_Type, ncol = 3, labeller = labeller(Fluctuation_Type = c(
+    "Avg_Temp_Fluctuation" = "B",
+    "Max_Temp_Fluctuation" = "A",
+    "Min_Temp_Fluctuation" = "C"
+  )))
+
+ggsave(plot_temp_fluctuations, filename="../figures/plot_temp_fluctuations.png")
+
+plot_temp_fluctuations
+
+```
+
+```{r}
+# Create long format 
+temp_long2 <- temp_mean_y0 %>%
+  pivot_longer(cols = c(soil_gs_mean, soil_gs_max, soil_gs_min),
+               names_to = "Temp_Type",
+               values_to = "Temp_Value")
+
+
+
+plot_temp <- temp_long2 %>%
+  ggplot(aes(x = Treatment, y = Temp_Value, color = Treatment)) +
+  geom_violin(scale = "width", width = 0.8, alpha = 0.7) +
+  geom_point(pch = 21, size = 1, position = position_jitterdodge()) +
+  stat_summary(
+    fun = "mean", 
+    geom = "point", 
+    shape = 18,  # Using a filled diamond shape for visibility
+    size = 3,    # Adjust size to make it visible
+    color = "black"  # Use black color to make it distinct
+  ) +
+  theme_minimal() +
+  scale_fill_brewer(palette = "Dark2") +
+  scale_color_brewer(palette = "Dark2") +
+  guides(color = "none") +
+  labs(y = expression(Temperature~(degree*C))) +  # Add y-axis label with degree symbol
+  theme(
+    axis.title.x = element_blank(),  # Remove x-axis label
+    strip.text = element_text(size = 16, face = "bold", hjust = 0)  # Make facet labels larger, bold, and left-aligned
+  )+
+      scale_y_continuous(limits = c(0, 27)) +  # Set y-axis limits using scale_y_continuous
+  facet_wrap(~ Temp_Type, ncol = 3, labeller = labeller(Temp_Type = c(
+    "soil_gs_mean" = "B",
+    "soil_gs_max" = "A",
+    "soil_gs_min" = "C"
+  )))
+
+ggsave(plot_temp, filename="../figures/plot_temp.png")
+
+plot_temp
+
+```
+
+```{r}
+# Create labels for each plot
+label_1 <- textGrob("1", x = unit(0.05, "npc"), y = unit(0.95, "npc"), just = c("left", "top"), gp = gpar(fontsize = 16, fontface = "bold"))
+label_2 <- textGrob("2", x = unit(0.05, "npc"), y = unit(0.95, "npc"), just = c("left", "top"), gp = gpar(fontsize = 16, fontface = "bold"))
+
+# Arrange the plots with the labels
+plot_temp_labeled <- arrangeGrob(plot_temp, top = label_1)
+plot_temp_fluctuations_labeled <- arrangeGrob(plot_temp_fluctuations, top = label_2)
+
+# Combine the labeled plots vertically
+combined_temp_plot <- grid.arrange(
+  plot_temp_labeled, plot_temp_fluctuations_labeled, # Add the labeled plots
+  nrow = 2,  # Arrange plots vertically
+  heights = c(1.5, 1.5)  # Increase the relative heights of each plot to make them taller
+)
+
+# Save the combined plot
+ggsave(combined_temp_plot, filename='../figures/combined_temp_plot.png', height = 25, width = 30, unit="cm")
 ```

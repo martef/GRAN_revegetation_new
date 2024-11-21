@@ -42,8 +42,8 @@ reveg_var <- reveg_var %>%
   mutate(Shrubs_Trees = Trees + Bushes + Bet_nan,   # combine Trees, Bushes, and Bet_nan into Shrubs_Trees          
          Carex = Carex + Rhynchospora,       # join Rhyncospora into Carex          
          Herbs = Herbs + Oxycoccus + Drosera, # join Oxycoccus and Drosera into Herbs          
-         Other_bryophytes = Other_mosses + Racomitrium)    %>%         
-  select(-Trees, -Bushes, -Bet_nan, -Rhynchospora, -Oxycoccus, -Drosera, -Other_mosses, -Racomitrium)  %>% # remove the old columns   
+         Other_mossed = Other_mosses + Racomitrium)    %>%         
+  select(-Trees, -Bushes, -Bet_nan, -Rhynchospora, -Oxycoccus, -Drosera, -Racomitrium)  %>% # remove the old columns   
   relocate(Shrubs_Trees, .after = Seedlings)  
 ```
 
@@ -164,7 +164,7 @@ summary_wide <- summary_wide %>%
          mean_year_3, median_year_3, se_year_3, max_year_3)
 
 # Print the final summary table
-print
+print (summary_wide)
 
 write.csv(summary_wide, file='summary_FGTs.csv')
 ```
@@ -236,33 +236,111 @@ reveg_wide <- reveg_wide %>%
 reveg_wide
 ```
 
+## Density ridge plot dominant PFTs
+
 ```{r}
-# Summarize the data by functional group, year, and Treatment
-summary <- reveg_long %>%
-  group_by(functional_group, t_year, Treatment) %>% # Group by functional group, year, and Treatment
-  summarise(mean = mean(cover, na.rm = TRUE), # Calculate mean cover
-            median = median(cover, na.rm = TRUE), # Calculate median cover
-            se = se(cover), # Calculate standard error
-            max = max(cover, na.rm = TRUE), # Calculate maximum cover
-            .groups = 'drop') # Ungroup the data after summarizing
+# Pivoting functional plant groups
+reveg_var_long_fg <- reveg_var %>%
+  select(c(Location:Treatment_ID, t_year:Dead_wood)) %>%
+  pivot_longer(cols = Sphagnum:Dead_wood, 
+               names_to = 'functional_group', 
+               values_to = 'cover')
 
-# Pivot the summary data to a wide format
-summary_wide <- summary %>%
-  pivot_wider(names_from = t_year, # Create columns for each year
-              values_from = c(mean, median, se, max), # Extract mean, median, SE, and max for each year
-              names_glue = "{.value}_year_{t_year}") # Name columns with value type and year
+# Pivoting nutrients
+reveg_var_long_nutrients <- reveg_var %>%
+  select(c(Location:Treatment_ID, t_year, NO3_N:Cd)) %>%
+  pivot_longer(cols = NO3_N:Cd, 
+               names_to = 'nutrients', 
+               values_to = 'level')
 
-# Explicitly order the columns for better readability
-summary_wide <- summary_wide %>%
-  select(functional_group, Treatment,
-         mean_year_0, median_year_0, se_year_0, max_year_0,
-         mean_year_2, median_year_2, se_year_2, max_year_2,
-         mean_year_3, median_year_3, se_year_3, max_year_3)
+# Joining the two pivoted data frames by their row number
+reveg_var_long <- reveg_var_long_fg %>%
+  full_join(reveg_var_long_nutrients, by = c('Location', 'Sublocation', 'Block', 'Treatment', 'Treatment_ID', 't_year'))
 
-# Print the final summary table
-print(summary_wide)
+# The references are lacking a treatment ID
+reveg_var_long <- reveg_var_long %>%
+  mutate(Treatment_ID = case_when(
+    Treatment == 'R' ~ 'R',
+    TRUE ~ Treatment_ID
+    ))
+```
 
-# Save the summary to a CSV file
-#write.csv(summary_wide, file = 'summary_FGTs.csv')
+```{r}
+#Subset to a set of the more dominant FTGs
+reveg_var_long_fg_sub <- reveg_var_long_fg %>%
+  filter(functional_group %in% c("Trichophorum", "Sphagnum", "Polytrichum", "Other_mosses", "Narthecium", "Liverworts", "Ericoids", "Eriophorum"))
+
+# Reverse the order of the functional_group
+reveg_var_long_fg_sub <- reveg_var_long_fg_sub %>%
+  mutate(functional_group=factor(functional_group, levels = rev(c("Trichophorum", "Sphagnum", "Polytrichum", "Other_mosses", "Narthecium", "Liverworts", "Ericoids", "Eriophorum"))),
+                              Treatment = factor(Treatment, 
+                            levels = c("C", "M", "S", "R")))
+
+
+#Subset to year 0 and to year 3
+reveg_var_long_fg_sub0 <- reveg_var_long_fg_sub %>%
+  filter(t_year=='0')
+
+reveg_var_long_fg_sub3 <- reveg_var_long_fg_sub %>%
+  filter(t_year=='3')
+
+
+```
+
+```{r}
+denplot_FTG0 <- ggplot(reveg_var_long_fg_sub0, aes(x = cover, y = Treatment, fill = Treatment)) + 
+  geom_density_ridges(
+    quantile_lines = TRUE, scale = 1, alpha = 0.9,
+    vline_width = 0.2, vline_color = "black", rel_min_height = 0.01) +
+  theme_minimal() +
+  labs(y = "Plant functional type", x = "Cover") +
+  scale_fill_manual(values = c("C" = "brown", "M" = "yellow", "S" = "darkgreen", "R" = "magenta")) + 
+   facet_wrap(~ functional_group) +  # Facet by Treatment
+  theme(legend.position = "none",
+  axis.title.y = element_text(margin = margin(r = 15)),
+   axis.title.x = element_text(margin = margin(t = 10)))+ # Adjust margin of y-xis title
+xlim(0, NA)  # Set the lower bound of x-axis to 0 and leave the upper bound automatic
+
+#ggsave(denplot_FTG0, filename='../figures/densityplot_FTG0_2.png')
+print(denplot_FTG0)
+```
+
+```{r}
+denplot_FTG3 <- ggplot(reveg_var_long_fg_sub3, aes(x = cover, y = Treatment, fill = Treatment)) + 
+  geom_density_ridges(
+    quantile_lines = TRUE, scale = 1, alpha = 0.9,
+    vline_width = 0.2, vline_color = "black", rel_min_height = 0.01) +
+  theme_minimal() +
+  labs(y = "Plant functional type", x = "Cover") +
+  scale_fill_manual(values = c("C" = "brown", "M" = "yellow", "S" = "darkgreen", "R" = "magenta")) + 
+   facet_wrap(~ functional_group) +  # Facet by Treatment
+  theme(legend.position = "none",
+  axis.title.y = element_text(margin = margin(r = 15)),
+   axis.title.x = element_text(margin = margin(t = 10)))+ # Adjust margin of y-xis title
+xlim(0, NA)  # Set the lower bound of x-axis to 0 and leave the upper bound automatic
+
+#ggsave(denplot_FTG3, filename='../figures/densityplot_FTG3_2.png')
+print(denplot_FTG3)
+```
+
+```{r}
+denplot_FTG3 <- ggplot(reveg_var_long_fg_sub3, aes(x = cover, y = Treatment, fill = Treatment)) + 
+  geom_density_ridges(
+    quantile_lines = TRUE, scale = 1, alpha = 0.9,
+    vline_width = 0.2, vline_color = "black", rel_min_height = 0.01) +
+  theme_minimal() +
+  labs(y = "Plant functional type", x = "Cover") +
+  scale_fill_manual(values = c("C" = "brown", "M" = "yellow", "S" = "darkgreen", "R" = "magenta")) + 
+  scale_y_discrete(labels = c("C" = "control", "M" = "mulch", "S" = expression(italic("Sphagnum")), "R" = "reference")) + # Update y-axis labels
+  facet_wrap(~ functional_group, labeller = labeller(functional_group = c("Other_mosses" = "Other mosses"))) +  # Update facet label
+  theme(
+    legend.position = "none",
+    axis.title.y = element_text(margin = margin(r = 15)),
+    axis.title.x = element_text(margin = margin(t = 10))
+  ) + 
+  xlim(0, NA)  # Set the lower bound of x-axis to 0 and leave the upper bound automatic
+
+ggsave(denplot_FTG3, filename='../figures/densityplot_FTG3_2.png')
+print(denplot_FTG3)
 
 ```

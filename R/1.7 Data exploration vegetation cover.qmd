@@ -25,12 +25,11 @@ reveg_var <- readr::read_delim('../data/reveg_var.csv',
 reveg_var <- reveg_var %>% 
   select( -1) %>%
   mutate_at(c('year', 'month', 'Location', 'Sublocation', 'Block', 'Treatment_ID', 'Treatment', 'Name', 'Station_ID'), as.factor) %>%
-  select('Date','year','month', 'Name','Location','Sublocation', 'Block', 'Treatment', 'Treatment_ID', 'Station_ID', everything()) %>%
-  rename(WT_consecutive_days_below = consecutive_days_count, WT_total_days_below=total_days, WT_mean=gs_mean, WT_max=gs_max, WT_min=gs_min)
+  select('Date','year','month', 'Name','Location','Sublocation', 'Block', 'Treatment', 'Treatment_ID', 'Station_ID', everything())
 
 ```
 
-I've seen that there is a need for some cleaning within the plant functional groups. Some smaller and very detailed groups should be combined, like Rhynchospora should join Carex, and Oxycoccus and Drosera should join Herbs. Some have not the correct names. This doesn't affect the former calculations of total vegetation cover or ground/field layer.
+There is a need for some cleaning within the plant functional groups. Some smaller and very detailed groups should be combined, like Rhynchospora should join Carex, and Oxycoccus and Drosera should join Herbs. Some have not the correct names. This doesn't affect the former calculations of total vegetation cover or ground/field layer.
 
 ```{r}
 #Renaming and combining several of the field groups into more coherent functional groups:
@@ -42,7 +41,8 @@ reveg_var <- reveg_var %>%
          Herbs = Herbs + Oxycoccus + Drosera, # join Oxycoccus and Drosera into Herbs
          Other_bryophytes = Other_mosses + Racomitrium)    %>%       
  select(-Trees, -Bushes, -Bet_nan, -Rhynchospora, -Oxycoccus, -Drosera, -Other_mosses, -Racomitrium)  %>% # remove the old columns
-  relocate(Shrubs_Trees, .after = Seedlings)  
+  relocate(Shrubs_Trees, .after = Seedlings) %>%
+relocate(Other_bryophytes, .after = Liverworts)  
 ```
 
 ## Other vegetation cover
@@ -542,7 +542,7 @@ summary_wide <- summary_wide %>%
          mean_year_3, median_year_3, se_year_3, max_year_3)
 
 # Print the final summary table
-print
+print(summary_wide)
 
 write.csv(summary_wide, file='summary_FGTs.csv')
 ```
@@ -644,7 +644,7 @@ reveg_wide
 ## Plots with M treatment with already Sphagnum from the start
 
 ```{r}
-plots_with_sphagnum <- reveg_var %>%
+M_plots_with_sphagnum <- reveg_var %>%
   filter(Treatment == "M", Sphagnum > 0, t_year == 0) %>%
  select(Location, Sublocation, Block, Treatment_ID) %>%
   distinct()
@@ -659,7 +659,6 @@ reveg_var_MSph <- reveg_var %>%
 ```{r}
 plot_SP_MSph <- reveg_var_MSph %>%
   filter(!is.na(Sphagnum)) %>%  # Exclude NA values in the Sphagnum column
-  mutate(Treatment = factor(Treatment, levels = c("C", "M", "S", "R"))) %>% # Rearrange Treatment levels
   ggplot(aes(x = Treatment, y = Sphagnum, color = as.factor(t_year), fill=as.factor(t_year))) +   
   geom_violin(scale = "width", width= 0.8, alpha=0.7) +   
   geom_point(pch = 21, size=1, position = position_jitterdodge()) +
@@ -691,4 +690,35 @@ summary_stats <- reveg_var_MSph %>%
 
 # View the summary statistics
 summary_stats
+```
+
+## Plots with Sphagnum from start in both C and M
+
+```{r}
+# Select plots with treatment "M" or "C" and Sphagnum present in t_year == 0
+plots_with_sphagnum <- reveg_var %>%
+  filter(Treatment %in% c("M", "C"), Sphagnum > 0, t_year == 0) %>%
+  select(Location, Sublocation, Block, Treatment_ID) %>%
+  distinct()
+
+# Filter the whole dataset by joining with the specific combinations
+reveg_var_Sph <- reveg_var %>%
+  inner_join(plots_with_sphagnum, by = c("Location", "Sublocation", "Block", "Treatment_ID")) %>%
+  filter(Treatment %in% c("M", "C"))
+```
+
+```{r}
+plot_SP_Sph <- reveg_var_Sph %>%
+  filter(!is.na(Sphagnum)) %>%  # Exclude NA values in the Sphagnum column
+  ggplot(aes(x = Treatment, y = Sphagnum, color = as.factor(t_year), fill=as.factor(t_year))) +   
+  geom_violin(scale = "width", width= 0.8, alpha=0.7) +   
+  geom_point(pch = 21, size=1, position = position_jitterdodge()) +
+  ylab("Sphagnum cover") +
+  labs(fill= "Growth seasons since treatment") +
+  theme_minimal() +
+  scale_fill_brewer(palette="Dark2") +
+  scale_color_brewer(palette="Dark2") +
+  guides(color = "none")
+
+plot_SP_Sph
 ```

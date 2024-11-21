@@ -26,8 +26,7 @@ reveg_var <- readr::read_delim('../data/reveg_var.csv',
 reveg_var <- reveg_var %>% 
   select( -1) %>%
   mutate_at(c('year', 'month', 'Location', 'Sublocation', 'Block', 'Treatment_ID', 'Treatment', 'Name', 'Station_ID'), as.factor) %>%
-  select('Date','year','month', 'Name','Location','Sublocation', 'Block', 'Treatment', 'Treatment_ID', 'Station_ID', everything()) %>%
-  rename(WT_consecutive_days_below = consecutive_days_count, WT_total_days_below=total_days, WT_mean=gs_mean, WT_max=gs_max, WT_min=gs_min)
+  select('Date','year','month', 'Name','Location','Sublocation', 'Block', 'Treatment', 'Treatment_ID', 'Station_ID', everything())
 ```
 
 ## Visual inspection of data
@@ -150,4 +149,24 @@ reveg_var %>%
 
 Several plots stagnated or dropped a little from 2nd to 3rd year, of these are 1 Sphagnum plot from VSM.
 
-### 
+### Summary of Sphagnum cover per sublocation
+
+```{r}
+reveg_var%>%
+  group_by(Location, Sublocation, t_year, Treatment) %>%
+  summarise(median=median(Sphagnum), 
+            mean=mean(Sphagnum),
+           se =se(Sphagnum),
+           sd = sd(Sphagnum),
+            max=max(Sphagnum), total_N = n()) 
+```
+
+```{r}
+reveg_var%>%
+  group_by(Location, t_year, Treatment) %>%
+  summarise(median=median(Sphagnum), 
+            mean=mean(Sphagnum),
+           se =se(Sphagnum),
+           sd = sd(Sphagnum),
+            max=max(Sphagnum))
+```

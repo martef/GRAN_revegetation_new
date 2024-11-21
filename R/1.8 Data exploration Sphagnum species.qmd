@@ -17,6 +17,18 @@ library(scales)
 ## Upload and clean data
 
 ```{r}
+reveg_var <- readr::read_delim('../data/reveg_var.csv', 
+                       delim = ',',
+                       locale = locale('se', encoding = 'ISO8859-1'),
+                       col_names = TRUE)
+
+reveg_var <- reveg_var %>% 
+  select( -1) %>%
+  mutate_at(c('year', 'month', 'Location', 'Sublocation', 'Block', 'Treatment_ID', 'Treatment', 'Name', 'Station_ID'), as.factor) %>%
+  select('Date','year','month', 'Name','Location','Sublocation', 'Block', 'Treatment', 'Treatment_ID', 'Station_ID', everything())
+```
+
+```{r}
 #Upload Sphagnum species dataset 
 sph <- readr::read_delim('../data/Sphagnum.csv',                                    
                          delim = ';',                                   
@@ -100,14 +112,77 @@ sph_long_y3 <- sph_long %>%
 ```
 
 ```{r}
-# Create aggregated dataset to plot level
+# Function to calculate the standard error
+se <- function(x) {
+  sd(x, na.rm = TRUE) / sqrt(sum(!is.na(x)))
+}
+
+```
+
+```{r}
+str(sph_long_y3)
+sph_long_y3$cover <- as.numeric(sph_long_y3$cover)
+
+# Check variation within groups
+sph_long_y3 %>%
+  group_by(Location, Sph_sp, Species_full) %>%
+  summarise(cover_sd = sd(cover, na.rm = TRUE),
+            proportion_sd = sd(Proportion, na.rm = TRUE))
+
+# Filter to one specific group to inspect
+specific_group <- sph_long_y3 %>%
+  filter(Location == "BSM" & Sph_sp == "Sph ang")
+
+# Calculate manually
+cover_mean <- mean(specific_group$cover, na.rm = TRUE)
+cover_se <- se(specific_group$cover)
+
+cover_mean
+cover_se
+
+```
+
+```{r}
 sph_long_agg <- sph_long_y3 %>%
-  group_by(Location, Sublocation, Block, Treatment_ID, Sph_sp, Species_full) %>%
+  group_by(Location, Sph_sp, Species_full) %>%
   summarise(cover = mean(cover, na.rm = TRUE),
-            Proportion = mean(Proportion, na.rm = TRUE))
+            se_cover = se(cover),
+            proportion = mean(Proportion, na.rm = TRUE),
+            se_prop = se(Proportion))
+
+sph_long_agg
+```
+
+```{r}
+# Calculate the standard error within each group before summarising
+sph_long_agg <- sph_long_y3 %>%
+  group_by(Location, Sph_sp, Species_full) %>%
+  mutate(se_cover = se(cover),    # Calculate SE while still in grouped, non-aggregated state
+         se_prop = se(Proportion)) %>%
+  summarise(cover = mean(cover, na.rm = TRUE),
+            se_cover = unique(se_cover),  # Use unique to keep SE value calculated earlier
+            proportion = mean(Proportion, na.rm = TRUE),
+            se_prop = unique(se_prop))
 
 # Display the aggregated data
 sph_long_agg
+write.csv(sph_long_agg, file='summary_sph_species_location.csv')
+```
+
+```{r}
+# Calculate the standard error within each group before summarising
+sph_long_agg_sub <- sph_long_y3 %>%
+  group_by(Location, Sublocation, Sph_sp, Species_full) %>%
+  mutate(se_cover = se(cover),    # Calculate SE while still in grouped, non-aggregated state
+         se_prop = se(Proportion)) %>%
+  summarise(cover = mean(cover, na.rm = TRUE),
+            se_cover = unique(se_cover),  # Use unique to keep SE value calculated earlier
+            proportion = mean(Proportion, na.rm = TRUE),
+            se_prop = unique(se_prop))
+
+# Display the aggregated data
+sph_long_agg_sub
+write.csv(sph_long_agg_sub, file='summary_sph_species_sublocation.csv')
 ```
 
 ## Boxplots
@@ -225,6 +300,42 @@ reveg %>%
   group_by(Block, Treatment_ID, t_year)
 ```
 
+## Summary
+
+```{r}
+# Function to calculate the standard error
+se <- function(x) {
+  sd(x, na.rm = TRUE) / sqrt(sum(!is.na(x)))
+}
+
+# Summarize the data
+summary <- reveg_long %>%
+  group_by(functional_group, t_year, Treatment) %>%
+  summarise(mean = mean(cover, na.rm = TRUE),
+            median = median(cover, na.rm = TRUE),
+            se = se(cover),
+            max = max(cover, na.rm = TRUE),
+            .groups = 'drop')
+
+# Pivot the summary data to a wide format
+summary_wide <- summary %>%
+  pivot_wider(names_from = t_year, 
+              values_from = c(mean, median, se, max), 
+              names_glue = "{.value}_year_{t_year}")
+
+# Explicitly order the columns
+summary_wide <- summary_wide %>%
+  select(functional_group, Treatment,
+         mean_year_0, median_year_0, se_year_0, max_year_0,
+         mean_year_2, median_year_2, se_year_2, max_year_2,
+         mean_year_3, median_year_3, se_year_3, max_year_3)
+
+# Print the final summary table
+print(summary_wide)
+
+write.csv(summary_wide, file='summary_FGTs.csv')
+```
+
 ## Proportion of total Sphagnum cover
 
 I want to test whether the Sphagnum species data would be better represented as proportions.
@@ -289,27 +400,27 @@ sph_summary <- sph_long %>%
 sph_summary
 ```
 
-+----------+-------------+---------+
-| Location | Sublocation | mean    |
-|          |             |         |
-| \<chr\>  | \<chr\>     | \<dbl\> |
-+:=========+:============+========:+
-| BSM      | 1           | 79.125  |
-+----------+-------------+---------+
-| BSM      | 2           | 93.250  |
-+----------+-------------+---------+
-| BSM      | 3           | 88.375  |
-+----------+-------------+---------+
-| HM       | 1           | 55.625  |
-+----------+-------------+---------+
-| HM       | 2           | 87.500  |
-+----------+-------------+---------+
-| HM       | 3           | 51.250  |
-+----------+-------------+---------+
-| VSM      | 1           | 28.750  |
-+----------+-------------+---------+
-| VSM      | 2           | 41.250  |
-+----------+-------------+---------+
++----------+-------------+----------+
+| Location | Sublocation | mean     |
+|          |             |          |
+| \<chr\>  | \<chr\>     | \<dbl\>  |
++:=========+:============+=========:+
+| BSM      | 1           | 79.125   |
++----------+-------------+----------+
+| BSM      | 2           | 93.250   |
++----------+-------------+----------+
+| BSM      | 3           | 88.375   |
++----------+-------------+----------+
+| HM       | 1           | 55.625   |
++----------+-------------+----------+
+| HM       | 2           | 87.500   |
++----------+-------------+----------+
+| HM       | 3           | 51.250   |
++----------+-------------+----------+
+| VSM      | 1           | 28.750   |
++----------+-------------+----------+
+| VSM      | 2           | 41.250   |
++----------+-------------+----------+
 
 ## Density plots
 
@@ -489,7 +600,7 @@ denplot_loc <- ggplot(sph_long_agg_ex, aes(x = Proportion, y = Species_full, fil
   axis.title.y = element_text(margin = margin(r = 15)),
    axis.title.x = element_text(margin = margin(t = 10))) # Adjust margin of y-xis title
 
-ggsave(denplot_loc, filename='../figures/densityplot_Sphsp_agg_ex_prop_loc.png')
+ggsave(denplot_loc, filename='../figures/densityplot_Sphsp_agg_ex_prop_loc.png', height = 9, width = 12, unit="cm")
 print(denplot_loc)
 ```
 
