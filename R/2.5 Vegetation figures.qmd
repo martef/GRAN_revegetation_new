@@ -23,14 +23,13 @@ library(patchwork) # Load patchwork for arranging plots neatly
 ## Uploading and cleaning the data
 
 ```{r}
-reveg_var <- readr::read_delim('./data/reveg_var.csv',                         delim = ',',                        
+reveg_var <- readr::read_delim('../data/reveg_var.csv',                         delim = ',',                        
                                locale = locale('se', encoding = 'ISO8859-1'),                        col_names = TRUE)  
 
 reveg_var <- reveg_var %>%    
   select( -1) %>%   
   mutate_at(c('year', 'month', 'Location', 'Sublocation', 'Block', 'Treatment_ID', 'Treatment', 'Name', 'Station_ID'), as.factor) %>%   
-  select('Date','year','month', 'Name','Location','Sublocation', 'Block', 'Treatment', 'Treatment_ID', 'Station_ID', everything()) %>%   
-  rename(WT_consecutive_days_below = consecutive_days_count, WT_total_days_below=total_days, WT_mean=gs_mean, WT_max=gs_max, WT_min=gs_min) 
+  select('Date','year','month', 'Name','Location','Sublocation', 'Block', 'Treatment', 'Treatment_ID', 'Station_ID', everything())
 ```
 
 Combining groups and renaming others:
@@ -42,7 +41,7 @@ reveg_var <- reveg_var %>%
   mutate(Shrubs_Trees = Trees + Bushes + Bet_nan,   # combine Trees, Bushes, and Bet_nan into Shrubs_Trees          
          Carex = Carex + Rhynchospora,       # join Rhyncospora into Carex          
          Herbs = Herbs + Oxycoccus + Drosera, # join Oxycoccus and Drosera into Herbs          
-         Other_mossed = Other_mosses + Racomitrium)    %>%         
+         Other_mosses = Other_mosses + Racomitrium)    %>%         
   select(-Trees, -Bushes, -Bet_nan, -Rhynchospora, -Oxycoccus, -Drosera, -Racomitrium)  %>% # remove the old columns   
   relocate(Shrubs_Trees, .after = Seedlings)  
 ```
@@ -74,7 +73,7 @@ plot_SP <- reveg_var %>%
 
 plot_SP
 # Save the plot to a file
-ggsave(plot_SP, filename = './figures/violinplot_SP.png', width = 10, height = 6, units = 'in')
+#ggsave(plot_SP, filename = './figures/violinplot_SP.png', width = 10, height = 6, units = 'in')
 
 ```
 
@@ -95,7 +94,7 @@ plot_TV <- reveg_var %>%
 
 plot_TV
 # Save the plot to a file
-ggsave(plot_TV, filename = './figures/violinplot_TV.png')
+#ggsave(plot_TV, filename = './figures/violinplot_TV.png')
 ```
 
 ```{r}
@@ -115,7 +114,7 @@ plot_OV <- reveg_var %>%
 
 plot_OV
 # Save the plot to a file
-ggsave(plot_OV, filename = './figures/violinplot_OV.png', width = 10, height = 6, units = 'in')
+#ggsave(plot_OV, filename = './figures/violinplot_OV.png', width = 10, height = 6, units = 'in')
 ```
 
 Combine plots plot_SP and plot_OV
@@ -130,7 +129,47 @@ combined_plot <- (plot_SP + theme(legend.position = 'bottom') + plot_annotation(
 combined_plot
 
 # Save the combined plot to a file
-ggsave(combined_plot, filename = './figures/violinplot_SP_OV.png', width = 14, height = 8, units = 'in')
+#ggsave(combined_plot, filename = './figures/violinplot_SP_OV.png', width = 14, height = 8, units = 'in')
+```
+
+```{r}
+# Add a "Source" column to each dataset and combine them
+combined_data <- bind_rows(
+  reveg_var %>%
+    filter(!is.na(Sphagnum)) %>%
+    mutate(Source = "Sphagnum", Value = Sphagnum),
+  reveg_var %>%
+    filter(!is.na(Other_veg)) %>%
+    mutate(Source = "Other vegetation", Value = Other_veg)
+)
+
+# Ensure Treatment levels are consistent
+combined_data <- combined_data %>%
+  mutate(Treatment = factor(Treatment, levels = c('C', 'M', 'S', 'R'),
+                            labels = c('control', 'mulch', 'Sphagnum', 'reference')))
+
+# Create the faceted plot
+combined_plot <- ggplot(combined_data, aes(x = Treatment, y = Value, 
+                                           color = as.factor(t_year), 
+                                           fill = as.factor(t_year))) +
+  geom_violin(scale = 'width', width = 0.8, alpha = 0.7) + # Add violin plots
+  geom_point(pch = 21, size = 1, position = position_jitterdodge()) + # Add jittered points
+  ylab('Percentage cover') + # Set y-axis label
+  labs(fill = 'Growing seasons since treatment') + # Set legend label
+  theme_minimal() + # Use minimal theme for a clean look
+  scale_fill_brewer(palette = 'Dark2') + # Use color palette for fills
+  scale_color_brewer(palette = 'Dark2') + # Use color palette for points
+  guides(color = 'none') + # Remove unnecessary legends
+  theme(
+    legend.position = "bottom", # Move legend to the bottom
+    plot.margin = unit(c(5.5, 30, 5.5, 5.5), "pt") # Add space to the right (top, right, bottom, left)
+  ) +
+  facet_wrap(~ Source) # Create facets for Sphagnum and Other vegetation
+
+# Display the combined plot
+combined_plot
+
+ggsave(combined_plot, filename = '../figures/violinplot_SP_OV.png')
 ```
 
 ## Full summary

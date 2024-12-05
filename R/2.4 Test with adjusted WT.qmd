@@ -200,8 +200,8 @@ print(total_days_below_minus_0.2, n = Inf)
 
 # Create a data frame with all combinations of year, month, and Station_ID
 all_combinations <- expand.grid(
-  year = unique(daily_means$year),
-  Station_ID = unique(daily_means$Station_ID)
+  year = unique(wt_daily_means$year),
+  Station_ID = unique(wt_daily_means$Station_ID)
 )
 
 # Join the data frame with all combinations with the calculated data
@@ -278,7 +278,7 @@ wtvar <- wtvar %>%
 wtvar <- wtvar %>% 
      separate('Station_ID', into = c('Location', 'Sublocation'), sep = "(?<=\\D)(?=\\d)|(?<=\\d)(?=\\D)", remove = FALSE)
 
-write.csv(wtvar, '../data/WT_varfinal.csv')
+#7write.csv(wtvar, '../data/WT_varfinal.csv')
 #wtvar <- readr::read_delim('../data/WT_varfinal.csv',
  #                      delim =  ',',
   #                    col_names = TRUE)
@@ -568,6 +568,160 @@ for (station in unique_stations) {
 
   print(station_comb_plot)
 }
+```
+
+## A single plot for 2020 and VSM:
+
+```{r}
+# Ensure your data frame is named clim_wt_combined
+# Filter the data for the desired time period and Station_IDs VSM1 and VSM2
+VSM_data <- clim_wt_combined %>%
+  filter(Date >= as.Date("2020-05-01") & Date <= as.Date("2020-09-30"),
+         Station_ID %in% c("VSM1", "VSM2"))
+
+# Since precipitation is the same for both VSM1 and VSM2, we only need to illustrate it once.
+# Create a separate dataset for precipitation
+VSM_prec_data <- VSM_data %>%
+  filter(Station_ID == "VSM1")
+
+# Create the plot for Station_IDs VSM1 and VSM2
+VSM_comb_plot <- ggplot() +
+  # WT_daily_mean as blue line underneath surface at 0m
+  geom_line(data = VSM_data, aes(x = Date, y = WT_daily_mean, color = Station_ID), size = 1) +
+  # prec as bars going upward from 0 (using only VSM1 for precipitation)
+  geom_bar(data = VSM_prec_data, aes(x = Date, y = prec / 30 * 0.60), stat = "identity", fill = "lightblue", color = "darkblue", alpha = 0.7) +
+  scale_y_continuous(
+    name = "Mean WT (m)",
+    limits = c(-0.60, 0.80),
+    breaks = seq(-0.60, 0.80, by = 0.10),
+    labels = function(x) ifelse(x > 0.15, "", sprintf("%.2f", x)),  # Format numbers with two decimal places, hide labels for values > 0.15
+    sec.axis = sec_axis(~ . * 60, name = "Precipitation (mm)", breaks = seq(0, 60, 10))
+  ) +
+  labs(title = "Mean WT and precipitation per day during first growing season for VSM1 and VSM2",
+       x = "Date", y = "Mean WT") +
+  theme_minimal() +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1)) +
+  scale_color_manual(values = c("VSM1" = "darkblue", "VSM2" = "darkgreen"))
+
+# Save the plot as a PNG file
+#ggsave(filename = "../figures/WT_prec_2020_VSM1_VSM2.png", plot = VSM_comb_plot, width = 10, height = 6)
+
+# Print the plot
+print(VSM_comb_plot)
+```
+
+## Similar plot for HM 2020:
+
+```{r}
+# Ensure your data frame is named clim_wt_combined
+# Filter the data for the desired time period and Station_IDs VSM1 and VSM2
+HM_data <- clim_wt_combined %>%
+  filter(Date >= as.Date("2020-05-01") & Date <= as.Date("2020-09-30"),
+         Station_ID %in% c("HM1", "HM3"))
+
+# Since precipitation is the same for both VSM1 and VSM2, we only need to illustrate it once.
+# Create a separate dataset for precipitation
+HM_prec_data <- HM_data %>%
+  filter(Station_ID == "HM1")
+
+# Create the plot for Station_IDs VSM1 and VSM2
+HM_comb_plot <- ggplot() +
+  # WT_daily_mean as blue line underneath surface at 0m
+  geom_line(data = HM_data, aes(x = Date, y = WT_daily_mean, color = Station_ID), size = 1) +
+  # prec as bars going upward from 0 (using only VSM1 for precipitation)
+  geom_bar(data = HM_prec_data, aes(x = Date, y = prec / 30 * 0.60), stat = "identity", fill = "lightblue", color = "darkblue", alpha = 0.7) +
+  scale_y_continuous(
+    name = "Mean WT (m)",
+    limits = c(-0.60, 0.80),
+    breaks = seq(-0.60, 0.80, by = 0.10),
+    labels = function(x) ifelse(x > 0.15, "", sprintf("%.2f", x)),  # Format numbers with two decimal places, hide labels for values > 0.15
+    sec.axis = sec_axis(~ . * 60, name = "Precipitation (mm)", breaks = seq(0, 60, 10))
+  ) +
+  labs(title = "Mean WT and precipitation per day during first growing season for HM1 and HM3",
+       x = "Date", y = "Mean WT") +
+  theme_minimal() +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1)) +
+  scale_color_manual(values = c("HM1" = "darkblue", "HM3" = "darkgreen"))
+
+# Save the plot as a PNG file
+ggsave(filename = "../figures/WT_prec_2020_HM-all.png", plot = HM_comb_plot, width = 10, height = 6)
+
+# Print the plot
+print(HM_comb_plot)
+```
+
+```{r}
+# Filter the data for the desired time period and Station_IDs VSM1 and VSM2
+VSM_data2 <- clim_wt_combined %>%
+  filter(Date >= as.Date("2021-05-01") & Date <= as.Date("2021-09-30"),
+         Station_ID %in% c("VSM1", "VSM2"))
+
+# Since precipitation is the same for both VSM1 and VSM2, we only need to illustrate it once.
+# Create a separate dataset for precipitation
+VSM_prec_data2 <- VSM_data2 %>%
+  filter(Station_ID == "VSM1")
+
+# Create the plot for Station_IDs VSM1 and VSM2
+VSM_comb_plot2 <- ggplot() +
+  # WT_daily_mean as blue line underneath surface at 0m
+  geom_line(data = VSM_data2, aes(x = Date, y = WT_daily_mean, color = Station_ID), size = 1) +
+  # prec as bars going upward from 0 (using only VSM1 for precipitation)
+  geom_bar(data = VSM_prec_data2, aes(x = Date, y = prec / 30 * 0.60), stat = "identity", fill = "lightblue", color = "darkblue", alpha = 0.7) +
+  scale_y_continuous(
+    name = "Mean WT (m)",
+    limits = c(-0.60, 0.80),
+    breaks = seq(-0.60, 0.80, by = 0.10),
+    labels = function(x) ifelse(x > 0.15, "", sprintf("%.2f", x)),  # Format numbers with two decimal places, hide labels for values > 0.15
+    sec.axis = sec_axis(~ . * 60, name = "Precipitation (mm)", breaks = seq(0, 60, 10))
+  ) +
+  labs(title = "Mean WT and precipitation per day during second growing season for VSM1 and VSM2",
+       x = "Date", y = "Mean WT") +
+  theme_minimal() +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1)) +
+  scale_color_manual(values = c("VSM1" = "darkblue", "VSM2" = "darkgreen"))
+
+# Save the plot as a PNG file
+ggsave(filename = "../figures/WT_prec_2021_VSM1_VSM2.png", plot = VSM_comb_plot2, width = 10, height = 6)
+
+# Print the plot
+print(VSM_comb_plot2)
+```
+
+```{r}
+# Filter the data for the desired time period and Station_IDs VSM1 and VSM2
+VSM_data3 <- clim_wt_combined %>%
+  filter(Date >= as.Date("2022-05-01") & Date <= as.Date("2022-09-30"),
+         Station_ID %in% c("VSM1", "VSM2"))
+
+# Since precipitation is the same for both VSM1 and VSM2, we only need to illustrate it once.
+# Create a separate dataset for precipitation
+VSM_prec_data3 <- VSM_data3 %>%
+  filter(Station_ID == "VSM1")
+
+# Create the plot for Station_IDs VSM1 and VSM2
+VSM_comb_plot3 <- ggplot() +
+  # WT_daily_mean as blue line underneath surface at 0m
+  geom_line(data = VSM_data3, aes(x = Date, y = WT_daily_mean, color = Station_ID), size = 1) +
+  # prec as bars going upward from 0 (using only VSM1 for precipitation)
+  geom_bar(data = VSM_prec_data3, aes(x = Date, y = prec / 30 * 0.60), stat = "identity", fill = "lightblue", color = "darkblue", alpha = 0.7) +
+  scale_y_continuous(
+    name = "Mean WT (m)",
+    limits = c(-0.60, 0.80),
+    breaks = seq(-0.60, 0.80, by = 0.10),
+    labels = function(x) ifelse(x > 0.15, "", sprintf("%.2f", x)),  # Format numbers with two decimal places, hide labels for values > 0.15
+    sec.axis = sec_axis(~ . * 60, name = "Precipitation (mm)", breaks = seq(0, 60, 10))
+  ) +
+  labs(title = "Mean WT and precipitation per day during third growing season for VSM1 and VSM2",
+       x = "Date", y = "Mean WT") +
+  theme_minimal() +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1)) +
+  scale_color_manual(values = c("VSM1" = "darkblue", "VSM2" = "darkgreen"))
+
+# Save the plot as a PNG file
+ggsave(filename = "../figures/WT_prec_2022_VSM1_VSM2.png", plot = VSM_comb_plot3, width = 10, height = 6)
+
+# Print the plot
+print(VSM_comb_plot3)
 ```
 
 # Upload reveg and join with WT
@@ -1342,4 +1496,20 @@ summary(mod12)
 ```{r}
 bayes_R2_mod12 <- bayes_R2(mod12)
 print(bayes_R2_mod12)
+```
+
+```{r}
+mod11 <- readRDS(file = "RDS-files/mod11.RDS")
+```
+
+```{r}
+summary(mod11)
+```
+
+```{r}
+mod10 <- readRDS(file = "RDS-files/mod10.RDS")
+```
+
+```{r}
+summary(mod10)
 ```

@@ -490,7 +490,7 @@ plot_temp_min_fluc <- temp_mean_y0 %>%
 plot_temp_min_fluc
 ```
 
-##  Create combined violinplots figure
+## Create combined violinplots figure
 
 ```{r}
 # Create long format
