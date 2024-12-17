@@ -84,7 +84,7 @@ Boron shortage affects many metabolic processes which ultimately impacts photosy
 
 ```{r}
 #Create long-format of nutrients 
-df_long <- df %>% pivot_longer(12:26, names_to = 'Nutrients', values_to = "Level") %>%
+df_long <- df_clean %>% pivot_longer(12:26, names_to = 'Nutrients', values_to = "Level") %>%
   mutate(Nutrients=as.factor(Nutrients))
 
 df_long <- df_long %>%
@@ -155,7 +155,7 @@ There's some clear differences between the locations:
 
 ```{r}
 # Calculate overall mean and standard deviation for each nutrient
-overall_stats <- df %>%
+overall_stats <- df_clean %>%
   summarise(across(NO3_N:Cd, list(mean = ~ mean(. , na.rm = TRUE), 
                                   sd = ~ sd(. , na.rm = TRUE)))) %>%
 pivot_longer(cols = everything(),
@@ -168,7 +168,7 @@ overall_stats
 
 ```{r}
 # Calculate mean, standard deviation, and sample size per location
-location_stats <- df %>%
+location_stats <- df_clean %>%
   group_by(Location) %>%
   summarise(across(NO3_N:Cd, list(mean = ~ mean(., na.rm = TRUE), 
                                   sd = ~ sd(., na.rm = TRUE)),
@@ -184,7 +184,7 @@ location_stats
 
 ```{r}
 # Calculate mean and standard deviation per treatment
-treatment_stats <- df %>%
+treatment_stats <- df_clean %>%
   group_by(Treatment) %>%
   summarise(across(NO3_N:Cd, list(mean = ~ mean(., na.rm = TRUE), 
                                   sd = ~ sd(., na.rm = TRUE)),
@@ -199,32 +199,6 @@ treatment_stats
 ```
 
 ### Density plot
-
-```{r}
-# Basic density
-denplot <- 
-  ggplot(df_long, aes(x=Level, y=Nutrients, fill=Nutrients)) + # colored filling and outline
- geom_density_ridges(
-   quantile_lines = TRUE, scale = 0.9, alpha = 0.4,
-    vline_width = 0.2, vline_color = "black", rel_min_height = 0.01) +
-  scale_color_brewer(palette="Dark2") +
-  theme_minimal()
-  
-print(denplot)
-
-
-#mu <- df_long %>% 
-#  plyr::ddply("Nutrients", summarise, grp.mean=mean(Level)) %>%
-#  mutate(Nutrients, as.factor(Nutrients))
-
-# geom_vline(data=mu, aes(xintercept=grp.mean,
-  #         color=Nutrients, linetype="dashed"))  #Add mean line
-  #scale_color_brewer(palette="Dark2") #set color scheme
-
-# geom_density_ridges(rel_min_height = 0.01) # cuts trailing trails
-#+ geom_density_ridges(scale = 0.9) control the extent of overlapping between densities, 0.9 -> not quite touching
-
-```
 
 ```{r}
 # Density plot per treatment
