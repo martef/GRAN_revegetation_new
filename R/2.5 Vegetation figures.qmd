@@ -205,7 +205,7 @@ summary_wide <- summary_wide %>%
 # Print the final summary table
 print (summary_wide)
 
-write.csv(summary_wide, file='summary_FGTs.csv')
+write.csv(summary_wide, file='summary_PFTs.csv')
 ```
 
 ```{r}
