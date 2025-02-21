@@ -17,6 +17,7 @@ library(forcats) # Load forcats for working with categorical variables (factors)
 library(gridExtra) # Load gridExtra for arranging multiple plots side by side
 library(cowplot) # Load cowplot for creating combined plots with shared legends
 library(patchwork) # Load patchwork for arranging plots neatly
+library(ggridges) #Load ggridges for density ridge plots
 
 ```
 
@@ -41,9 +42,11 @@ reveg_var <- reveg_var %>%
   mutate(Shrubs_Trees = Trees + Bushes + Bet_nan,   # combine Trees, Bushes, and Bet_nan into Shrubs_Trees          
          Carex = Carex + Rhynchospora,       # join Rhyncospora into Carex          
          Herbs = Herbs + Oxycoccus + Drosera, # join Oxycoccus and Drosera into Herbs          
-         Other_mosses = Other_mosses + Racomitrium)    %>%         
+         Other_mosses = Other_mosses + Racomitrium,
+         Ericaceae = Ericoids)    %>%         
   select(-Trees, -Bushes, -Bet_nan, -Rhynchospora, -Oxycoccus, -Drosera, -Racomitrium)  %>% # remove the old columns   
-  relocate(Shrubs_Trees, .after = Seedlings)  
+  relocate(Shrubs_Trees, .after = Seedlings) %>%
+  relocate(Ericaceae, .after = Seedlings)  # Move Ericaceae after Seedlings
 ```
 
 ## Creating long format of species functional groups:
@@ -129,7 +132,7 @@ combined_plot <- (plot_SP + theme(legend.position = 'bottom') + plot_annotation(
 combined_plot
 
 # Save the combined plot to a file
-#ggsave(combined_plot, filename = './figures/violinplot_SP_OV.png', width = 14, height = 8, units = 'in')
+ggsave(combined_plot, filename = '../figures/violinplot_SP_OV.png', width = 14, height = 8, units = 'in')
 ```
 
 ```{r}
@@ -169,7 +172,7 @@ combined_plot <- ggplot(combined_data, aes(x = Treatment, y = Value,
 # Display the combined plot
 combined_plot
 
-ggsave(combined_plot, filename = '../figures/violinplot_SP_OV.png')
+ggsave(combined_plot, filename = '../figures/violinplot_SP_OV.png', width = 8, height = 5, dpi = 300)
 ```
 
 ## Full summary
@@ -307,11 +310,11 @@ reveg_var_long <- reveg_var_long %>%
 ```{r}
 #Subset to a set of the more dominant FTGs
 reveg_var_long_fg_sub <- reveg_var_long_fg %>%
-  filter(functional_group %in% c("Trichophorum", "Sphagnum", "Polytrichum", "Other_mosses", "Narthecium", "Liverworts", "Ericoids", "Eriophorum"))
+  filter(functional_group %in% c("Trichophorum", "Sphagnum", "Polytrichum", "Other_mosses", "Narthecium", "Liverworts", "Ericaceae", "Eriophorum"))
 
 # Reverse the order of the functional_group
 reveg_var_long_fg_sub <- reveg_var_long_fg_sub %>%
-  mutate(functional_group=factor(functional_group, levels = rev(c("Trichophorum", "Sphagnum", "Polytrichum", "Other_mosses", "Narthecium", "Liverworts", "Ericoids", "Eriophorum"))),
+  mutate(functional_group=factor(functional_group, levels = rev(c("Trichophorum", "Sphagnum", "Polytrichum", "Other_mosses", "Narthecium", "Liverworts", "Ericaceae", "Eriophorum"))),
                               Treatment = factor(Treatment, 
                             levels = c("C", "M", "S", "R")))
 

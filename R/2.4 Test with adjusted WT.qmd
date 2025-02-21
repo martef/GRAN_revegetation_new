@@ -27,9 +27,14 @@ library(ggridges)
 library(ggrepel)
 library(cowplot)
 library(tidybayes)
+library(openxlsx)
 
 options(mc.cores = parallel::detectCores())
 rstan_options(auto_write = TRUE)
+```
+
+```{r}
+citation()
 ```
 
 # WT adjustments and rerunning of code to create WT variables
@@ -401,7 +406,7 @@ plot_BSM2 <- clim_wt_combined %>%
       labels = function(x) ifelse(x > 0.15, "", x),  # Hide labels for values > 0.15
       sec.axis = sec_axis(~ . * 60, name = "Precipitation (mm)", breaks = seq(0, 40, 5))
     ) +
-    labs(title = paste("Mean WT and precipitation per day during growth season 2020 for", station),
+    labs(title = paste("Mean WT and precipitation per day during growth season 2020 for BSM2"),
          x = "Date", y = "Mean WT") +
     theme_minimal() +
     theme(axis.text.x = element_text(angle = 45, hjust = 1))
@@ -414,7 +419,6 @@ plot_BSM2
 
 ```{r}
 
-# Ensure your data frame is named clim_wt_combined
 # Filter the data for the desired time period
 filtered_data <- clim_wt_combined %>%
   filter(Date >= as.Date("2020-05-01") & Date <= as.Date("2020-09-30"))
@@ -454,8 +458,6 @@ for (station in unique_stations) {
 Then repeat for the other years:
 
 ```{r}
-
-# Ensure your data frame is named clim_wt_combined
 # Filter the data for the desired time period
 filtered_data <- clim_wt_combined %>%
   filter(Date >= as.Date("2021-05-01") & Date <= as.Date("2021-09-30"))
@@ -494,7 +496,6 @@ for (station in unique_stations) {
 
 ```{r}
 
-# Ensure your data frame is named clim_wt_combined
 # Filter the data for the desired time period
 filtered_data <- clim_wt_combined %>%
   filter(Date >= as.Date("2022-05-01") & Date <= as.Date("2022-09-30"))
@@ -533,7 +534,6 @@ for (station in unique_stations) {
 
 ```{r}
 
-# Ensure your data frame is named clim_wt_combined
 # Filter the data for the desired time period
 filtered_data <- clim_wt_combined %>%
   filter(Date >= as.Date("2023-05-01") & Date <= as.Date("2023-09-30"))
@@ -573,7 +573,6 @@ for (station in unique_stations) {
 ## A single plot for 2020 and VSM:
 
 ```{r}
-# Ensure your data frame is named clim_wt_combined
 # Filter the data for the desired time period and Station_IDs VSM1 and VSM2
 VSM_data <- clim_wt_combined %>%
   filter(Date >= as.Date("2020-05-01") & Date <= as.Date("2020-09-30"),
@@ -604,7 +603,7 @@ VSM_comb_plot <- ggplot() +
   scale_color_manual(values = c("VSM1" = "darkblue", "VSM2" = "darkgreen"))
 
 # Save the plot as a PNG file
-#ggsave(filename = "../figures/WT_prec_2020_VSM1_VSM2.png", plot = VSM_comb_plot, width = 10, height = 6)
+ggsave(filename = "../figures/WT_prec_2020_VSM1_VSM2.png", plot = VSM_comb_plot, width = 10, height = 6)
 
 # Print the plot
 print(VSM_comb_plot)
@@ -613,7 +612,6 @@ print(VSM_comb_plot)
 ## Similar plot for HM 2020:
 
 ```{r}
-# Ensure your data frame is named clim_wt_combined
 # Filter the data for the desired time period and Station_IDs VSM1 and VSM2
 HM_data <- clim_wt_combined %>%
   filter(Date >= as.Date("2020-05-01") & Date <= as.Date("2020-09-30"),
@@ -722,6 +720,91 @@ ggsave(filename = "../figures/WT_prec_2022_VSM1_VSM2.png", plot = VSM_comb_plot3
 
 # Print the plot
 print(VSM_comb_plot3)
+```
+
+# Calculate number of days with/without \>2mm precipitation within growing season
+
+```{r}
+# Filter for the time period and count days with precipitation > 2mm per Location and Year
+prec_days_per_location_year <- climdat_season %>%
+  filter(Precipitation >= 2) %>%
+  group_by(clim_station, year) %>%
+  summarise(n_days_prec_above_2mm = n(), .groups = "drop")
+
+# Display result
+prec_days_per_location_year
+```
+
+```{r}
+# Filter dataset based on the required conditions and rename locations
+summary_month_prec <- climdat_season %>%
+  filter((clim_station == "Hoydalsmoan" & year == 2020) |
+         (clim_station == "Hoydalsmoan" & year == 2021) |
+         (clim_station == "Vestersetermyra" & year == 2020)) %>%
+  mutate(Location = case_when(
+    clim_station == "Hoydalsmoan" & year == 2020 ~ "HM",
+    clim_station == "Hoydalsmoan" & year == 2021 ~ "BSM",
+    clim_station == "Vestersetermyra" & year == 2020 ~ "VSM"
+  )) %>%
+  filter(month %in% c(5, 6, 7, 8, 9)) %>%  # Keep only growing season months
+  group_by(Location, year, month) %>%
+  summarise(n_days_prec_above_2mm = sum(Precipitation >= 2, na.rm = TRUE), .groups = "drop")
+
+# Display result
+summary_month_prec
+```
+
+```{r}
+
+# Filter dataset and rename Locations
+filtered_prec_data <- climdat_season %>%
+  filter((clim_station == "Hoydalsmoan" & year == 2020) |
+         (clim_station == "Hoydalsmoan" & year == 2021) |
+         (clim_station == "Vestersetermyra" & year == 2020)) %>%
+  mutate(Location = case_when(
+    clim_station == "Hoydalsmoan" & year == 2020 ~ "HM",
+    clim_station == "Hoydalsmoan" & year == 2021 ~ "BSM",
+    clim_station == "Vestersetermyra" & year == 2020 ~ "VSM"
+  )) %>%
+  filter(month %in% c(5, 6, 7, 8, 9))  # Keep only growing season months
+
+# Calculate consecutive days with precipitation < 2mm, treating NAs as FALSE (not counted)
+consecutive_prec <- filtered_prec_data %>%
+  mutate(prec_below_2mm = Precipitation < 2) %>%   # Logical variable
+  replace_na(list(prec_below_2mm = FALSE)) %>%  # Replace NA with FALSE
+  group_by(Location, year, month) %>%
+  mutate(consecutive_days = cumsum(prec_below_2mm) - cummax((!prec_below_2mm) * cumsum(prec_below_2mm))) %>%
+  ungroup()
+
+# Summarize maximum consecutive days per month
+max_consecutive_prec <- consecutive_prec %>%
+  group_by(Location, year, month) %>%
+  summarise(max_consecutive_days = max(consecutive_days, na.rm = TRUE), .groups = "drop")
+
+# Display result
+max_consecutive_prec
+```
+
+```{r}
+# Define the output file name
+output_file <- "effective_prec2.xlsx"
+
+# Create a list of data frames to save in separate sheets
+data_list <- list(
+  "Growing_Season_Days" = summary_month_prec,
+  "Precip_Days" = prec_days_per_location_year,
+  "Max_Cons_Days" = max_consecutive_prec
+)
+
+# Write to an Excel file with multiple sheets
+write.xlsx(data_list, file = output_file)
+
+# Message to indicate success
+cat("Excel file saved as", output_file)
+```
+
+```{r}
+getwd()
 ```
 
 # Upload reveg and join with WT

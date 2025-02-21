@@ -22,6 +22,7 @@ library(rstan)
 library(bayesplot) 
 library(loo)  
 library(sjPlot)
+library(grid)
 
 ```
 
@@ -100,9 +101,11 @@ reveg_var <- reveg_var %>%
   mutate(Shrubs_Trees = Trees + Bushes + Bet_nan,   # combine Trees, Bushes, and Bet_nan into Shrubs_Trees          
          Carex = Carex + Rhynchospora,       # join Rhyncospora into Carex          
          Herbs = Herbs + Oxycoccus + Drosera, # join Oxycoccus and Drosera into Herbs          
-         Other_mosses = Other_mosses + Racomitrium)    %>%         
-  select(-Trees, -Bushes, -Bet_nan, -Rhynchospora, -Oxycoccus, -Drosera, -Racomitrium)  %>% # remove the old columns   
-  relocate(Shrubs_Trees, .after = Seedlings)  
+         Other_mosses = Other_mosses + Racomitrium,
+         Ericaceae = Ericoids)    %>%         
+  select(-Trees, -Bushes, -Bet_nan, -Rhynchospora, -Oxycoccus, -Drosera, -Racomitrium, -Ericoids)  %>% # remove the old columns   
+  relocate(Shrubs_Trees, .after = Seedlings) %>%
+             relocate(Ericaceae, .after = Grasses)
 ```
 
 ```{r}
@@ -864,7 +867,8 @@ Include the temperature data in with the rest of the reveg for ordination
 ```{r}
 #Join the two datasets
 temp <- temp %>%
-  mutate(Sublocation = as.character(Sublocation))
+  mutate(Sublocation = as.character(Sublocation)) %>%
+           mutate(Block = as.factor(Block))
 
 reveg_var_pca_nut_temp <- reveg_var_pca_nut %>%
   full_join(temp, by = c('Location', 'Sublocation', 'Block', 'Treatment'))
@@ -1350,13 +1354,49 @@ envfit_result_nut_temp <- envfit(nmds_result_nut_temp, full_matrix, permutations
 vectors_nut_temp <- scores(envfit_result_nut_temp, display = "vectors")
 pvals_nut_temp <- envfit_result_nut_temp$vectors$pvals
 
-# Filter only significant vectors (e.g., p < 0.05)
-significant_vectors_nut_temp <- vectors_nut_temp[pvals_nut_temp < 0.05, , drop = FALSE]
+# # Filter only significant vectors (e.g., p < 0.05)
+ significant_vectors_nut_temp <- vectors_nut_temp[pvals_nut_temp < 0.05, , drop = FALSE]
 
 #Extract environmental scores for ggplot
 envfit_vectors_nut_temp_s <- as.data.frame(significant_vectors_nut_temp)
 envfit_vectors_nut_temp_s$variables <- rownames(envfit_vectors_nut_temp_s)
 
+```
+
+```{r}
+
+#Extract environmental scores for ggplot
+envfit_vectors_nut_temp <- as.data.frame(vectors_nut_temp)
+envfit_vectors_nut_temp$variables <- rownames(envfit_vectors_nut_temp)
+
+# Change the label of a specific environmental vector
+envfit_vectors_nut_temp <- envfit_vectors_nut_temp %>%
+  mutate(variables = case_when(variables == "soil_gs_min"~ "Min temp", 
+                            variables == "soil_gs_mean"~ "Mean temp",
+                            variables == "soil_gs_max"~ "Max temp",
+                            variables == "Max_Temp_Fluctuation"~ "Max Temp Fluctuation",
+                            variables == "Min_Temp_Fluctuation"~ "Min Temp Fluctuation",
+                            variables == "Avg_Temp_Fluctuation"~ "Mean Temp Fluctuation",
+                            TRUE ~ variables))
+
+# Create a plot for environmental vectors
+env_plot_nut_temp <- ggplot(envfit_vectors_nut_temp, aes(x = NMDS1, y = NMDS2)) +
+  geom_segment(aes(x = 0, y = 0, xend = NMDS1, yend = NMDS2), 
+               arrow = arrow(length = unit(0.2, "cm")), color = "darkblue", alpha = 0.7, size = 0.3) +
+  geom_text_repel(aes(x = NMDS1, y = NMDS2, label = variables), size = 3) +
+  labs(
+       x = "NMDS1",
+       y = "NMDS2"
+  ) +
+  coord_cartesian(xlim = c(-0.6, 0.6), ylim = c(-0.7, 0.6)) +
+  theme_minimal() +
+  theme(plot.margin = margin(t = 30, r = 5, b = 5, l = 5))
+
+# Print the environmental vector plot
+print(env_plot_nut_temp)
+```
+
+```{r}
 
 # Change the label of a specific environmental vector
 envfit_vectors_nut_temp_s <- envfit_vectors_nut_temp_s %>%
@@ -1451,6 +1491,139 @@ print(nmds_CM_env_st)
 
 ```{r}
 ggsave(nmds_CM_env_st, filename='../figures/nmds_CM_env_all_split2.png')
+```
+
+## NMDS plot with only soil and temp
+
+```{r}
+# Step 1: Prepare the Data
+# Filter out rows with any NA values in the relevant columns
+filtered_data_soil <- reveg_var_pca_nut_temp %>%
+  filter(complete.cases(across(NO3_N:Min_Temp_Fluctuation))) %>%
+  select(-c(year, Dead_sph, DateTime, Logger_ID, ...1))
+
+# Remove columns with zero variance
+non_zero_var_columns <- filtered_data_soil %>%
+  select(NO3_N:Min_Temp_Fluctuation) %>%
+  select(where(~ var(.) != 0))
+
+# Step 1: Log-transform 
+log_transformed_data <- non_zero_var_columns %>%
+  mutate(across(where(is.numeric), log1p))  # Apply log1p to avoid zero/negative issues
+
+# Step 2: Min-max scale the log-transformed data to keep all values between 0 and 1
+normalized_data <- log_transformed_data %>%
+  mutate(across(everything(), ~ (. - min(.)) / (max(.) - min(.))))
+
+# Extract the numeric matrix for NMDS
+full_matrix <- as.matrix(normalized_data)
+
+# Step 2: Perform NMDS
+# We use Bray-Curtis distance, but you can change this if needed
+set.seed(123)  # Set a seed for reproducibility
+nmds_result_soil <- metaMDS(full_matrix, distance = "bray", k = 3, trymax = 100)
+
+# Step 3: Extract and Bind Scores
+# Extract NMDS scores for each site (rows)
+nmds_scores_soil <- as_tibble(scores(nmds_result_soil, display = "sites")) %>%
+  bind_cols(filtered_data %>% select(Location, Treatment, Sublocation, Block))
+
+
+# Step 4: Correct Line Connections
+# Ensure that each C is connected only to its corresponding M within the same block
+nmds_scores_soil <- nmds_scores_soil %>%
+  arrange(Location, Sublocation, Block, Treatment)
+
+# Create a new dataframe to explicitly pair Treatment C and M within each Block
+paired_lines_soil <- nmds_scores_soil %>%
+  group_by(Location, Sublocation, Block) %>%
+  filter(n() == 2) %>%  # Ensure there are exactly two points (C and M) per Block
+  ungroup()
+
+
+```
+
+```{r}
+stressplot(nmds_result_soil)
+```
+
+```{r}
+# Step 5: Plot NMDS with Corrected Legends and Connect Blocks
+nmds_plot_soil <- ggplot(nmds_scores_soil, aes(x = NMDS1, y = NMDS2)) +
+  geom_point(aes(fill = Treatment, shape = Location), size = 2, alpha = 0.7, color = "black") +
+  geom_line(data = paired_lines_soil, aes(group = interaction(Location, Sublocation, Block)), linetype = "dashed", alpha = 0.8, size = 0.3) +  # Increase line size to make overlapping lines more visible
+    # Add transparency to points to distinguish overlapping points, Use fill instead of color
+  stat_ellipse(aes(group = Location, color = Location), type = "norm", level = 0.95, show.legend = TRUE) +
+  labs(
+       x = "NMDS1",
+       y = "NMDS2",
+       color = "Location",
+       fill = "Treatment",
+       shape = "Location"
+  ) +
+  theme_minimal() +
+     theme(legend.position = 'top') +
+    coord_cartesian(xlim = c(-0.7, 0.7), ylim = c(-0.8, 0.6)) +
+  scale_fill_manual(values = c("C" = "brown", "M" = "yellow")) + scale_shape_manual(values = c("BSM" = 21, "HM" = 22, "VSM"=24)) +  # Use manual fill scale for categorical Treatment
+  guides(
+    color = guide_legend(order = 1, override.aes = list(linetype = "solid", size = 3)),  # Show color for both lines and ellipses in Location
+    shape = guide_legend(order = 1),  # Include shapes in Location legend
+    fill = guide_legend(order = 2, override.aes = list(fill = c("brown", "yellow"), shape = 21, size = 3)) # Include fill in Treatment legend
+  )
+
+# Print the plot
+print(nmds_plot_soil)
+
+```
+
+```{r}
+# Fit environmental vectors onto the NMDS ordination
+envfit_result_soil <- envfit(nmds_result_soil, full_matrix, permutations = 999)
+
+# Extract the vectors and p-values from the envfit result
+vectors_soil <- scores(envfit_result_soil, display = "vectors")
+pvals_soil <- envfit_result_soil$vectors$pvals
+
+ # Filter only significant vectors (e.g., p < 0.05)
+ significant_vectors_soil <- vectors_soil[pvals_soil < 0.05, , drop = FALSE]
+
+#Extract environmental scores for ggplot
+envfit_vectors_soil_s <- as.data.frame(significant_vectors_soil)
+envfit_vectors_soil_s$variables <- rownames(envfit_vectors_soil_s)
+
+# Change the label of a specific environmental vector
+envfit_vectors_soil_s <- envfit_vectors_soil_s %>%
+  mutate(variables = case_when(variables == "soil_gs_min"~ "Min temp", 
+                            variables == "soil_gs_mean"~ "Mean temp",
+                            variables == "soil_gs_max"~ "Max temp",
+                            variables == "Max_Temp_Fluctuation"~ "Max Temp Fluctuation",
+                            variables == "Min_Temp_Fluctuation"~ "Min Temp Fluctuation",
+                            variables == "Avg_Temp_Fluctuation"~ "Mean Temp Fluctuation",
+                            TRUE ~ variables))
+
+# Create a plot for environmental vectors
+env_plot_soil_s <- ggplot(envfit_vectors_soil_s, aes(x = NMDS1, y = NMDS2)) +
+  geom_segment(aes(x = 0, y = 0, xend = NMDS1, yend = NMDS2), 
+               arrow = arrow(length = unit(0.2, "cm")), color = "darkblue", alpha = 0.7, size = 0.3) +
+  geom_text_repel(aes(x = NMDS1, y = NMDS2, label = variables), size = 3) +
+  labs(
+       x = "NMDS1",
+       y = "NMDS2"
+  ) +
+  coord_cartesian(xlim = c(-0.7, 0.7), ylim = c(-0.8, 0.6)) +
+  theme_minimal() +
+  theme(plot.margin = margin(t = 30, r = 5, b = 5, l = 5))
+
+# Print the environmental vector plot
+print(env_plot_soil_s)
+```
+
+```{r}
+nmds_CM_soil_s <- grid.arrange(nmds_plot_soil, env_plot_soil_s, nrow = 2)
+
+print(nmds_CM_soil_s)
+
+ggsave(nmds_CM_soil_s, filename='../figures/nmds_CM_soil.png', height=8, width=6)
 ```
 
 ## NMDS plot PTFs all treatments
@@ -1755,7 +1928,7 @@ nmds_plot3 <- ggplot(nmds_scores3, aes(x = NMDS1, y = NMDS2)) +
 print(nmds_plot3)
 ```
 
-The clusters groups very close to the grouping of R, S and M + C.
+The clusters groups most of R + S together, while splitting by NMDS2 scores mainly. This mainly link to Polytrichum and Other Mosses, I think.
 
 # Combined NMDS figure; both plots
 
@@ -1782,5 +1955,32 @@ combined_nmds_plot <- grid.arrange(
 
 # Save the combined plot
 ggsave(combined_nmds_plot, filename='../figures/combined_nmds_plot.png', height = 20, width = 30, unit="cm")
+
+```
+
+```{r}
+# Create two text labels for A and B
+label_A <- textGrob("A", x = unit(0.05, "npc"), y = unit(0.95, "npc"), just = c("left", "top"), gp = gpar(fontsize = 16, fontface = "bold"))
+label_B <- textGrob("B", x = unit(0.05, "npc"), y = unit(0.95, "npc"), just = c("left", "top"), gp = gpar(fontsize = 16, fontface = "bold"))
+
+# Arrange the plots with labels included
+plot_A <- arrangeGrob(nmds_pft_env2_s, top = label_A)
+plot_B <- arrangeGrob(nmds_CM_soil_s, top = label_B)
+
+# Add extra space above the combined plot
+extra_space <- grid::nullGrob()  # An empty grob to add some space
+
+combined_nmds_plot2 <- grid.arrange(
+  extra_space,  # Add extra space above
+  plot_A, plot_B,
+  ncol = 2,  # Arrange everything in one column first
+  layout_matrix = rbind(c(1), c(2, 3)),  # Specify the layout to create space above
+  heights = c(0.05, 1)  # Adjust the height: 0.2 for extra space, 1 for the plots
+)
+
+# Save the combined plot
+ggsave(combined_nmds_plot2, filename='../figures/combined_nmds_plot2.png', height = 20, width = 30, unit="cm")
+
+
 
 ```
