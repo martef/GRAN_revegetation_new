@@ -39,61 +39,6 @@ reveg_var <- reveg_var %>%
   select('Date','year','month', 'Name','Location','Sublocation', 'Block', 'Treatment', 'Treatment_ID', 'Station_ID', everything())
 ```
 
-UPDATE! THIS IS NOW FIXED IN THE DATASET AND WILL NOT BE APPLICABLE NOW!
-
-*There is an uneven number to the dataset, which shouldn't be, considering the experimental setup. I have checked through the original data, and think I've found the mistake.*
-
-*Seems like I have no nutrient data for BSM 1-1-M, and HM 1-4- C, while I have two sets nutrient data for HM 1-2-C.*
-
-```{r}
-# reveg_var %>%
-# filter(
-#     (Location == "HM" & Sublocation == "1" & Block == "2" & t_year == "0" & Treatment %in% c("C", "M")) |
-#     (Location == "HM" & Sublocation == "1" & Block == "4" & t_year == "0" & Treatment %in% c("C", "M"))
-#     ) %>%
-#       select(c("Location", "Sublocation", "Block", "Treatment", NO3_N:Cd))
-# 
-
-```
-
-*When checking the original data for nutrients the error exists already there. I can't find notes about loosing/breaking any of the lacking ones, or having two from one. I know I registered one less for 2021 (BSM) when sending for analysis, which indicates the one lacking from BSM is truly missing. So it's the one in HM which is mislabeled.*
-
-*Based on that all other nutrient levels are quite similar and the levels of Fe stands out, I think I can fairly certain say that the HM1-2-C no 2 here is the one that is correctly named, while the first one is the HM 1-4-C.*
-
-*I'll have to move the nutrient values from HM1-2-C to HM1-4-C and delete the second entry for HM1-2-C*
-
-```{r}
-# # Identify the row with nutrient values that need to be transferred (Block == 2 and NH4_N == 13)
-# nutrient_row <- reveg_var %>%
-#   filter(Location == "HM", Sublocation == 1, Block == 2, Treatment == "C", t_year == 0, NH4_N == 13)
-# 
-# # Identify the row with Block == 4 that needs to receive these nutrient values
-# block_4_row <- reveg_var %>%
-#   filter(Location == "HM", Sublocation == 1, Block == 4, Treatment == "C", t_year == 0)
-# 
-# # Transfer nutrient values (columns NO3_N:Cd) from Block == 2 to Block == 4
-# # Select the nutrient columns from nutrient_row and assign to block_4_row
-# reveg_var <- reveg_var %>%
-#   mutate(across(starts_with("NO3_N"):starts_with("Cd"), 
-#                 ~ ifelse(Location == "HM" & Sublocation == 1 & Block == 4 & Treatment == "C" & t_year == 0, 
-#                          nutrient_row[[cur_column()]], .)))
-# 
-# # Remove the row for Block == 2 that has the wrong information
-# reveg_var <- reveg_var %>%
-#   filter(!(Location == "HM" & Sublocation == 1 & Block == 2 & Treatment == "C" & t_year == 0 & NH4_N == 13))
-# 
-# # Check if the row has been updated and deleted
-# print(reveg_var)
-```
-
-*Everything is now corrected.*
-
-*Saving the updated dataset*
-
-```{r}
-#write.csv(reveg_var, file='../data/reveg_var.csv')
-```
-
 ```{r}
 #Renaming and combining several of the field groups into more coherent functional groups:  
 reveg_var <- reveg_var %>%   
