@@ -1,0 +1,1475 @@
+---
+title: "2.2 Exploratory analysis effect of mulch on functional vegetation groups, nutrients and temperature"
+author: "MarteF"
+format: html
+editor: visual
+---
+
+## Packages needed
+
+```{r}
+library(tidyverse)
+library(vegan)
+library(ggrepel)
+library(ggridges)
+library(RColorBrewer)
+library(scales)
+library(gridExtra)
+library(brms) # bayesian approach to glmm, but with easier steps 
+library(posterior) # tools for working with posterior and prior distributions 
+library(lme4) # fit GLMM in frequentist framework 
+library(rstan) 
+library(bayesplot) 
+library(loo)  
+library(sjPlot)
+library(grid)
+
+```
+
+## Uploading data
+
+```{r}
+reveg_var <- readr::read_delim('../data/reveg_var.csv',                                    
+                         delim = ',',                                   
+                         col_names = TRUE)
+
+reveg_var <- reveg_var %>% 
+  select( -1) %>%
+  mutate_at(c('year', 'month', 'Location', 'Sublocation', 'Block', 'Treatment_ID', 'Treatment', 'Name', 'Station_ID'), as.factor) %>%
+  select('Date','year','month', 'Name','Location','Sublocation', 'Block', 'Treatment', 'Treatment_ID', 'Station_ID', everything())
+```
+
+UPDATE! THIS IS NOW FIXED IN THE DATASET AND WILL NOT BE APPLICABLE NOW!
+
+*There is an uneven number to the dataset, which shouldn't be, considering the experimental setup. I have checked through the original data, and think I've found the mistake.*
+
+*Seems like I have no nutrient data for BSM 1-1-M, and HM 1-4- C, while I have two sets nutrient data for HM 1-2-C.*
+
+```{r}
+# reveg_var %>%
+# filter(
+#     (Location == "HM" & Sublocation == "1" & Block == "2" & t_year == "0" & Treatment %in% c("C", "M")) |
+#     (Location == "HM" & Sublocation == "1" & Block == "4" & t_year == "0" & Treatment %in% c("C", "M"))
+#     ) %>%
+#       select(c("Location", "Sublocation", "Block", "Treatment", NO3_N:Cd))
+# 
+
+```
+
+*When checking the original data for nutrients the error exists already there. I can't find notes about loosing/breaking any of the lacking ones, or having two from one. I know I registered one less for 2021 (BSM) when sending for analysis, which indicates the one lacking from BSM is truly missing. So it's the one in HM which is mislabeled.*
+
+*Based on that all other nutrient levels are quite similar and the levels of Fe stands out, I think I can fairly certain say that the HM1-2-C no 2 here is the one that is correctly named, while the first one is the HM 1-4-C.*
+
+*I'll have to move the nutrient values from HM1-2-C to HM1-4-C and delete the second entry for HM1-2-C*
+
+```{r}
+# # Identify the row with nutrient values that need to be transferred (Block == 2 and NH4_N == 13)
+# nutrient_row <- reveg_var %>%
+#   filter(Location == "HM", Sublocation == 1, Block == 2, Treatment == "C", t_year == 0, NH4_N == 13)
+# 
+# # Identify the row with Block == 4 that needs to receive these nutrient values
+# block_4_row <- reveg_var %>%
+#   filter(Location == "HM", Sublocation == 1, Block == 4, Treatment == "C", t_year == 0)
+# 
+# # Transfer nutrient values (columns NO3_N:Cd) from Block == 2 to Block == 4
+# # Select the nutrient columns from nutrient_row and assign to block_4_row
+# reveg_var <- reveg_var %>%
+#   mutate(across(starts_with("NO3_N"):starts_with("Cd"), 
+#                 ~ ifelse(Location == "HM" & Sublocation == 1 & Block == 4 & Treatment == "C" & t_year == 0, 
+#                          nutrient_row[[cur_column()]], .)))
+# 
+# # Remove the row for Block == 2 that has the wrong information
+# reveg_var <- reveg_var %>%
+#   filter(!(Location == "HM" & Sublocation == 1 & Block == 2 & Treatment == "C" & t_year == 0 & NH4_N == 13))
+# 
+# # Check if the row has been updated and deleted
+# print(reveg_var)
+```
+
+*Everything is now corrected.*
+
+*Saving the updated dataset*
+
+```{r}
+#write.csv(reveg_var, file='../data/reveg_var.csv')
+```
+
+```{r}
+#Renaming and combining several of the field groups into more coherent functional groups:  
+reveg_var <- reveg_var %>%   
+  rename(Liverworts = Livermosses, Rushes = Sedges, Ericoids = Heathers, Eriophorum = Eriopherum) %>% #rename misnamed groups   
+  mutate(Shrubs_Trees = Trees + Bushes + Bet_nan,   # combine Trees, Bushes, and Bet_nan into Shrubs_Trees          
+         Carex = Carex + Rhynchospora,       # join Rhyncospora into Carex          
+         Herbs = Herbs + Oxycoccus + Drosera, # join Oxycoccus and Drosera into Herbs          
+         Other_mosses = Other_mosses + Racomitrium,
+         Ericaceae = Ericoids)    %>%         
+  select(-Trees, -Bushes, -Bet_nan, -Rhynchospora, -Oxycoccus, -Drosera, -Racomitrium, -Ericoids)  %>% # remove the old columns   
+  relocate(Shrubs_Trees, .after = Seedlings) %>%
+             relocate(Ericaceae, .after = Grasses)
+```
+
+```{r}
+# Pivoting functional plant groups
+reveg_var_long_fg <- reveg_var %>%
+  select(c(Location:Treatment_ID, t_year:Dead_wood)) %>%
+  pivot_longer(cols = Sphagnum:Dead_wood, 
+               names_to = 'functional_group', 
+               values_to = 'cover')
+
+# Pivoting nutrients
+reveg_var_long_nutrients <- reveg_var %>%
+  select(c(Location:Treatment_ID, t_year, NO3_N:Cd)) %>%
+  pivot_longer(cols = NO3_N:Cd, 
+               names_to = 'nutrients', 
+               values_to = 'level')
+
+# Joining the two pivoted data frames by their row number
+reveg_var_long <- reveg_var_long_fg %>%
+  full_join(reveg_var_long_nutrients, by = c('Location', 'Sublocation', 'Block', 'Treatment', 'Treatment_ID', 't_year'))
+
+# The references are lacking a treatment ID
+reveg_var_long <- reveg_var_long %>%
+  mutate(Treatment_ID = case_when(
+    Treatment == 'R' ~ 'R',
+    TRUE ~ Treatment_ID
+    ))
+```
+
+```{r}
+#Subsetting functional vegetation groups to only data for year 3
+reveg_fg_y3 <- reveg_var %>%
+  filter(t_year=='3') %>%
+  select(c(Location:Treatment_ID, Sphagnum:Dead_wood))
+
+#Subsetting functional vegetation groups to only data for year 0
+reveg_fg_y0 <- reveg_var %>%
+  filter(t_year=='0') %>%
+  select(c(Location:Treatment_ID, Sphagnum:Dead_wood))
+
+#Subsetting year 3 to only include C and M
+reveg_fg_y3_CM <- reveg_fg_y3 %>%
+  filter(Treatment==(c('C','M')))
+
+#Subsetting nutrients to only the year with data (year 0)
+reveg_nut <- reveg_var %>%
+  filter(t_year=='0') %>%
+  select(c(Location:Treatment_ID, NO3_N:Cd))
+
+#Join the two datasets of subset year 3 C & M and nutrients year 0
+reveg_var_pca_nut <- reveg_fg_y3_CM %>%
+  full_join(reveg_nut, by = c('Location', 'Sublocation', 'Block', 'Treatment', 'Treatment_ID'))
+
+#Join the two datasets, but now including all treatments
+reveg_var_pca_nut_all <- reveg_fg_y3 %>%
+  full_join(reveg_nut, by=c('Location', 'Sublocation', 'Block', 'Treatment', 'Treatment_ID'))
+```
+
+## Density ridge plots PFTs
+
+```{r}
+#Subset to a set of the more dominant FTGs
+reveg_var_long_fg_sub <- reveg_var_long_fg %>%
+  filter(functional_group %in% c("Trichophorum", "Sphagnum", "Polytrichum", "Other_mosses", "Narthecium", "Liverworts", "Ericoids", "Eriophorum"))
+
+# Reverse the order of the functional_group
+reveg_var_long_fg_sub <- reveg_var_long_fg_sub %>%
+  mutate(functional_group=factor(functional_group, levels = rev(c("Trichophorum", "Sphagnum", "Polytrichum", "Other_mosses", "Narthecium", "Liverworts", "Ericoids", "Eriophorum"))),
+                              Treatment = factor(Treatment, 
+                            levels = c("C", "M", "S", "R")))
+
+
+
+
+#Subset to year 0 and to year 3
+reveg_var_long_fg_sub0 <- reveg_var_long_fg_sub %>%
+  filter(t_year=='0')
+
+reveg_var_long_fg_sub3 <- reveg_var_long_fg_sub %>%
+  filter(t_year=='3')
+
+
+```
+
+```{r}
+denplot_FTG0 <- ggplot(reveg_var_long_fg_sub0, aes(x = cover, y = functional_group, fill = functional_group)) + 
+  geom_density_ridges(
+    quantile_lines = TRUE, scale = 1, alpha = 0.9,
+    vline_width = 0.2, vline_color = "black", rel_min_height = 0.01) +
+  theme_minimal() +
+  labs(y = "FTG", x = "Cover") +
+  scale_fill_brewer(palette="PuOr") +
+   facet_wrap(~ Treatment) +  # Facet by Treatment
+  theme(legend.position = "none",
+  axis.title.y = element_text(margin = margin(r = 15)),
+   axis.title.x = element_text(margin = margin(t = 10)))+ # Adjust margin of y-xis title
+xlim(0, NA)  # Set the lower bound of x-axis to 0 and leave the upper bound automatic
+
+# ggsave(denplot_FTG0, filename='../figures/densityplot_FTG0.png')
+print(denplot_FTG0)
+```
+
+```{r}
+
+denplot_FTG3 <- ggplot(reveg_var_long_fg_sub3, aes(x = cover, y = functional_group, fill = functional_group)) + 
+  geom_density_ridges(
+    quantile_lines = TRUE, scale = 1, alpha = 0.9,
+    vline_width = 0.2, vline_color = "black", rel_min_height = 0.01) +
+  theme_minimal() +
+  labs(y = "Plant functional trait", x = "Cover") +
+  scale_fill_brewer(palette="PuOr") +
+   facet_wrap(~ Treatment) +  # Facet by Treatment
+  theme(legend.position = "none",
+  axis.title.y = element_text(margin = margin(r = 15)),
+   axis.title.x = element_text(margin = margin(t = 10)))+ # Adjust margin of y-xis title
+xlim(0, NA)  # Set the lower bound of x-axis to 0 and leave the upper bound automatic
+
+# ggsave(denplot_FTG3, filename='../figures/densityplot_FTG3.png')
+print(denplot_FTG3)
+```
+
+```{r}
+denplot_FTG3_2 <- ggplot(reveg_var_long_fg_sub3, aes(x = cover, y = Treatment, fill = Treatment)) + 
+  geom_density_ridges(
+    quantile_lines = TRUE, scale = 1, alpha = 0.9,
+    vline_width = 0.2, vline_color = "black", rel_min_height = 0.01) +
+  theme_minimal() +
+  labs(y = "Plant functional type", x = "Cover") +
+  scale_fill_brewer(palette="PuOr") +
+   facet_wrap(~ functional_group, scales = "free_x") +  # Facet by FTGs, allow different x-axis for each
+  theme(legend.position = "none",
+  axis.title.y = element_text(margin = margin(r = 15)),
+   axis.title.x = element_text(margin = margin(t = 10)))+ # Adjust margin of y-xis title
+xlim(0, NA)  # Set the lower bound of x-axis to 0 and leave the upper bound automatic
+
+# ggsave(denplot_FTG3_2, filename='../figures/densityplot_FTG3_2.png')
+print(denplot_FTG3_2)
+```
+
+## Density ridge plot nutrients
+
+```{r}
+
+#Density plot per location
+denplot_loc <- 
+  ggplot(reveg_var_long_nutrients, aes(x=level, y=Location, fill=Location)) + # colored filling and outline
+ geom_density_ridges(
+   quantile_lines = TRUE, scale = 5, alpha = 0.4,
+    vline_width = 0.2, vline_color = "black", rel_min_height = 0.01) +
+  scale_color_brewer(palette="Dark2") +
+  theme_minimal() +
+  theme(legend.position = 'none') +
+  facet_wrap(~ nutrients, scales = "free_x") +
+xlim(0, NA)  # Set the lower bound of x-axis to 0 and leave the upper bound automatic
+  
+print(denplot_loc)
+# ggsave(denplot_loc, filename='../figures/densityplot_nutrients_location.png')
+```
+
+```{r}
+#Density plot per location
+denplot_treat <- reveg_var_long_nutrients %>%
+  filter(Treatment!="S")%>%
+  filter(Treatment!="R")%>%
+  ggplot(aes(x=level, y=Treatment, fill=Treatment)) + # colored filling and outline
+ geom_density_ridges(
+   quantile_lines = TRUE, scale = 5, alpha = 0.4,
+    vline_width = 0.2, vline_color = "black", rel_min_height = 0.01) +
+  scale_color_brewer(palette="Dark2") +
+  theme_minimal() +
+  theme(legend.position = 'none') +
+  facet_wrap(~ nutrients, scales = "free_x") +
+xlim(0, NA)  # Set the lower bound of x-axis to 0 and leave the upper bound automatic
+  
+print(denplot_treat)
+# ggsave(denplot_treat, filename='../figures/densityplot_nutrients_treatment.png')
+```
+
+## Soil temperatures
+
+```{r}
+temp <- readr::read_delim('../data/temp_mean_y0.csv',                                    
+                         delim = ',',                                   
+                         col_names = TRUE)
+
+```
+
+### Density ridge plots
+
+```{r}
+denplot_temp_mean <- ggplot(temp, aes(x = soil_gs_mean, y = Treatment, fill = Treatment)) + 
+  geom_density_ridges(
+    quantile_lines = TRUE, scale = 2, alpha = 1,
+    vline_width = 0.2, vline_color = "black", rel_min_height = 0.01) +
+  theme_minimal() +
+  labs(y = "Location", x = "Soil Temperature") +
+  guides(fill = guide_legend(reverse = TRUE)) +
+  scale_fill_brewer(palette="Dark2") +
+  facet_wrap(Location~.)
+
+
+#ggsave(denplot_temp, filename='../figures/densityplot_soil_temp_mean.png')
+print(denplot_temp_mean)
+```
+
+```{r}
+denplot_temp_max <- ggplot(temp, aes(x = soil_gs_max, y = Treatment, fill = Treatment)) + 
+  geom_density_ridges(
+    quantile_lines = TRUE, scale = 2, alpha = 1,
+    vline_width = 0.2, vline_color = "black", rel_min_height = 0.01) +
+  theme_minimal() +
+  labs(y = "Treatment", x = "Soil Temperature") +
+  guides(fill = guide_legend(reverse = TRUE)) +
+  scale_fill_brewer(palette="Dark2")
+
+
+#ggsave(denplot_temp, filename='../figures/densityplot_soil_temp_mean.png')
+print(denplot_temp_max)
+```
+
+```{r}
+denplot_temp_min <- ggplot(temp, aes(x = soil_gs_min, y = Treatment, fill = Treatment)) + 
+  geom_density_ridges(
+    quantile_lines = TRUE, scale = 2, alpha = 1,
+    vline_width = 0.2, vline_color = "black", rel_min_height = 0.01) +
+  theme_minimal() +
+  labs(y = "Treatment", x = "Soil Temperature") +
+  guides(fill = guide_legend(reverse = TRUE)) +
+  scale_fill_brewer(palette="Dark2")
+
+
+#ggsave(denplot_temp, filename='../figures/densityplot_soil_temp_mean.png')
+print(denplot_temp_min)
+```
+
+Include the temperature data in with the rest of the reveg for ordination
+
+```{r}
+#Join the datasets of PFTs, nutrients and temps
+temp <- temp %>%
+  mutate(Sublocation = as.character(Sublocation)) %>%
+           mutate(Block = as.factor(Block))
+
+reveg_var_pca_nut_temp <- reveg_var_pca_nut %>%
+  full_join(temp, by = c('Location', 'Sublocation', 'Block', 'Treatment'))
+```
+
+## BRMS with temp vs treatment
+
+Is there a significant difference in overall max and min temp over treatment?
+
+```{r}
+# temp_max_brm<-   brm(soil_gs_max ~ Treatment + (1 | Location/Sublocation),
+#                    data=temp,
+#                  family= gaussian(), #Gaussian familiy for continious data
+#                 chains = 4, # nb of chains
+#                  iter = 4000, # nb of iterations, including burnin
+#                  warmup = 1000, # burnin
+#                 control = list(adapt_delta = 0.99, max_treedepth = 15))
+#               
+
+# saveRDS(temp_max_brm, 'RDS-files/temp_max.RDS')
+temp_max_brm <- readRDS('RDS-files/temp_max.RDS')
+```
+
+```{r}
+summary(temp_max_brm)
+```
+
+```{r}
+plot(temp_max_brm)
+```
+
+```{r}
+# temp_min_brm<-   brm(soil_gs_min ~ Treatment + (1 | Location/Sublocation),
+#                    data=temp,
+#                  family= gaussian(), #Gaussian familiy for continious data
+#                 chains = 4, # nb of chains
+#                  iter = 4000, # nb of iterations, including burnin
+#                  warmup = 1000, # burnin
+#                 control = list(adapt_delta = 0.99, max_treedepth = 15))
+              
+
+# saveRDS(temp_min_brm, 'RDS-files/temp_min.RDS')
+temp_min_brm <- readRDS('RDS-files/temp_min.RDS')
+```
+
+```{r}
+summary(temp_min_brm)
+```
+
+There is no significant effect of either maximum temp or minimum temp.
+
+Will test max/min fluctuation later.
+
+# NMDS Ordination
+
+Note to self: Unlike other ordination techniques that rely on (primarily Euclidean) distances, such as Principal Coordinates Analysis, NMDS uses rank orders.
+
+NMDS plots are non-metric, meaning that among other things, they use data that is not required to fit a normal distribution.
+
+**Bray-Curtis** will be best fitting distance measure when dealing with relative abundance data. Bray-Curtis takes into account species presence/absence, as well as abundance, whereas other measures (like Jaccard) only take into account presence/absence.
+
+## NMDS plot C & M all
+
+### NMDS with k=2
+
+```{r}
+# Step 1: Prepare the Data
+# Filter out rows with any NA values in the relevant columns
+filtered_data <- reveg_var_pca_nut %>%
+  filter(complete.cases(across(Sphagnum:Cd))) %>%
+  select(-c(Mulch, Bare_peat, Litter, Dead_wood))
+
+# Remove columns with zero variance
+non_zero_var_columns <- filtered_data %>%
+  select(Sphagnum:Cd) %>%
+  select(where(~ var(.) != 0))
+
+# Extract the numeric matrix for NMDS
+full_matrix <- as.matrix(non_zero_var_columns)
+
+# Step 2: Perform NMDS
+# We use Bray-Curtis distance, but you can change this if needed
+set.seed(125)  # Set a seed for reproducibility
+nmds_result <- metaMDS(full_matrix, distance = "bray", k = 2, trymax = 100)
+
+# Step 3: Extract and Bind Scores
+# Extract NMDS scores for each site (rows)
+nmds_scores <- as_tibble(scores(nmds_result, display = "sites")) %>%
+  bind_cols(filtered_data %>% select(Location, Treatment, Sublocation, Block))
+
+# Step 4: Correct Line Connections
+# Ensure that each C is connected only to its corresponding M within the same block
+nmds_scores <- nmds_scores %>%
+  arrange(Location, Sublocation, Block, Treatment)
+
+# Create a new dataframe to explicitly pair Treatment C and M within each Block
+paired_lines <- nmds_scores %>%
+  group_by(Location, Sublocation, Block) %>%
+  filter(n() == 2) %>%  # Ensure there are exactly two points (C and M) per Block
+  ungroup()
+
+
+```
+
+Interpret results
+
+```{r}
+stressplot(nmds_result)
+```
+
+Looks pretty good in this case.
+
+```{r}
+goodness_scores <- goodness(nmds_result)
+plot(nmds_result, display = "sites")
+points(nmds_result, display = "sites", cex = goodness_scores * 2)
+```
+
+```{r}
+# Step 5: Plot NMDS with Corrected Legends and Connect Blocks
+nmds_plot <- ggplot(nmds_scores, aes(x = NMDS1, y = NMDS2)) +
+  geom_line(data = paired_lines, aes(group = interaction(Location, Sublocation, Block)), linetype = "dashed", alpha = 0.8, size = 0.5) +  # Increase line size to make overlapping lines more visible
+  geom_point(aes(color = Treatment, shape = Location), size = 3, alpha = 0.7) +  # Add transparency to points to distinguish overlapping points
+  stat_ellipse(aes(group = Location, color = Location), type = "norm", level = 0.95, show.legend = TRUE) +
+  labs(
+       x = "NMDS1",
+       y = "NMDS2",
+       color = "Treatment",
+       shape = "Location"
+  ) +
+  theme_minimal() +
+  viridis::scale_fill_viridis() +
+  guides(
+    color = guide_legend(order = 1),
+    shape = guide_legend(order = 2)
+  )
+
+# Print the plot
+print(nmds_plot)
+
+```
+
+I now have lines connecting the various sample pairs (within same block).
+
+Now onto fixing legends.
+
+```{r}
+# Step 5: Plot NMDS with corrected legends and connect blocks
+nmds_plot <- ggplot(nmds_scores, aes(x = NMDS1, y = NMDS2)) +
+  geom_point(aes(fill = Treatment, shape = Location), size = 3, alpha = 0.7, color = "black") +
+  geom_line(data = paired_lines, aes(group = interaction(Location, Sublocation, Block)), linetype = "dashed", alpha = 0.8, size = 0.5) +  # Increase line size to make overlapping lines more visible
+    # Add transparency to points to distinguish overlapping points, Use fill instead of color
+  stat_ellipse(aes(group = Location, color = Location), type = "norm", level = 0.95, show.legend = TRUE) +
+  labs(
+       x = "NMDS1",
+       y = "NMDS2",
+       color = "Location",
+       fill = "Treatment",
+       shape = "Location"
+  ) +
+  theme_minimal() +
+  scale_fill_manual(values = c("C" = "brown", "M" = "yellow")) + scale_shape_manual(values = c("BSM" = 21, "HM" = 22, "VSM"=24)) +  # Use manual fill scale for categorical Treatment
+  guides(
+    color = guide_legend(order = 1, override.aes = list(linetype = "solid", size = 3)),  # Show color for both lines and ellipses in Location
+    shape = guide_legend(order = 1),  # Include shapes in Location legend
+    fill = guide_legend(order = 2, override.aes = list(fill = c("brown", "yellow"), shape = 21, size = 3)) # Include fill in Treatment legend
+  )
+
+# Print the plot
+print(nmds_plot)
+
+
+```
+
+NMDS does not have loadings, but we can fit environmental vectors.
+
+The `envfit()` function finds the direction in which each variable is most strongly correlated with the ordination axes.
+
+```{r}
+# Fit environmental vectors onto the NMDS ordination
+envfit_result <- envfit(nmds_result, full_matrix, permutations = 999)
+
+# Extract vectors for plotting
+envfit_vectors <- as.data.frame(scores(envfit_result, display = "vectors"))
+envfit_vectors$variables <- rownames(envfit_vectors)
+
+# Add these vectors to the NMDS plot
+nmds_plot_env <- nmds_plot +
+  geom_segment(data = envfit_vectors, aes(x = 0, y = 0, xend = NMDS1, yend = NMDS2),
+               arrow = arrow(length = unit(0.2, "cm")), color = "darkblue") +
+  geom_text_repel(data = envfit_vectors, aes(x = NMDS1, y = NMDS2, label = variables), color = "black")
+
+# Print the updated plot
+print(nmds_plot_env)
+```
+
+This is too messy to have in one figure.
+
+Alternatively, I'll set these up as two figures side by side
+
+```{r}
+
+# Create a plot for environmental vectors
+env_plot <- ggplot(envfit_vectors, aes(x = NMDS1, y = NMDS2)) +
+  geom_segment(aes(x = 0, y = 0, xend = NMDS1, yend = NMDS2), 
+               arrow = arrow(length = unit(0.2, "cm")), color = "darkblue", alpha = 0.7) +
+  geom_text_repel(aes(x = NMDS1, y = NMDS2, label = variables), size = 3) +
+  labs(
+       x = "NMDS1",
+       y = "NMDS2"
+  ) +
+  theme_minimal() +
+  theme(plot.margin = margin(t = 30, r = 5, b = 5, l = 5))
+
+# Print the environmental vector plot
+print(env_plot)
+
+```
+
+```{r}
+# ggsave(nmds_plot, filename='../figures/nmds_plot_CM_all.png')
+```
+
+### NMDS with k=3
+
+```{r}
+# Step 2: Perform NMDS
+# We use Bray-Curtis distance, but you can change this if needed
+set.seed(123)  # Set a seed for reproducibility
+nmds_result_3k <- metaMDS(full_matrix, distance = "bray", k = 3, trymax = 100)
+
+# Step 3: Extract and Bind Scores
+# Extract NMDS scores for each site (rows)
+nmds_scores_3k <- as_tibble(scores(nmds_result_3k, display = "sites")) %>%
+  bind_cols(filtered_data %>% select(Location, Treatment, Sublocation, Block))
+
+
+# Step 4: Correct Line Connections
+# Ensure that each C is connected only to its corresponding M within the same block
+nmds_scores_3k <- nmds_scores_3k %>%
+  arrange(Location, Sublocation, Block, Treatment)
+
+# Create a new dataframe to explicitly pair Treatment C and M within each Block
+paired_lines_3k <- nmds_scores_3k %>%
+  group_by(Location, Sublocation, Block) %>%
+  filter(n() == 2) %>%  # Ensure there are exactly two points (C and M) per Block
+  ungroup()
+
+```
+
+```{r}
+stressplot(nmds_result_3k)
+```
+
+```{r}
+# Step 5: Plot NMDS with corrected legends and connect blocks
+nmds_plot_3k <- ggplot(nmds_scores_3k, aes(x = NMDS1, y = NMDS2)) +
+  geom_point(aes(fill = Treatment, shape = Location), size = 2, alpha = 0.7, color = "black") +
+  geom_line(data = paired_lines_3k, aes(group = interaction(Location, Sublocation, Block)), linetype = "dashed", alpha = 0.8, size = 0.3) +  # Increase line size to make overlapping lines more visible
+    # Add transparency to points to distinguish overlapping points, Use fill instead of color
+  stat_ellipse(aes(group = Location, color = Location), type = "norm", level = 0.95, show.legend = TRUE) +
+  labs(
+       x = "NMDS1",
+       y = "NMDS2",
+       color = "Location",
+       fill = "Treatment",
+       shape = "Location"
+  ) +
+  theme_minimal() +
+     theme(legend.position = 'top') +
+    coord_cartesian(xlim = c(-0.6, 0.6), ylim = c(-0.6, 0.6)) +
+  scale_fill_manual(values = c("C" = "brown", "M" = "yellow")) + scale_shape_manual(values = c("BSM" = 21, "HM" = 22, "VSM"=24)) +  # Use manual fill scale for categorical Treatment
+  guides(
+    color = guide_legend(order = 1, override.aes = list(linetype = "solid", size = 3)),  # Show color for both lines and ellipses in Location
+    shape = guide_legend(order = 1),  # Include shapes in Location legend
+    fill = guide_legend(order = 2, override.aes = list(fill = c("brown", "yellow"), shape = 21, size = 3)) # Include fill in Treatment legend
+  )
+
+# Print the plot
+print(nmds_plot_3k)
+
+```
+
+```{r}
+# ggsave(nmds_plot_3k, filename="../figures/nmds_plot_CM.png")
+```
+
+```{r}
+# Fit environmental vectors onto the NMDS ordination
+envfit_result_3k <- envfit(nmds_result_3k, full_matrix, permutations = 999)
+
+# Extract vectors for plotting
+envfit_vectors_3k <- as.data.frame(scores(envfit_result_3k, display = "vectors"))
+envfit_vectors_3k$variables <- rownames(envfit_vectors_3k)
+
+
+# Create a plot for environmental vectors
+env_plot_3k <- ggplot(envfit_vectors_3k, aes(x = NMDS1, y = NMDS2)) +
+  geom_segment(aes(x = 0, y = 0, xend = NMDS1, yend = NMDS2), 
+               arrow = arrow(length = unit(0.2, "cm")), color = "darkblue", alpha = 0.7) +
+  geom_text_repel(aes(x = NMDS1, y = NMDS2, label = variables), size = 3) +
+  labs(
+       x = "NMDS1",
+       y = "NMDS2"
+  ) +
+  coord_cartesian(xlim = c(-0.6, 0.6), ylim = c(-0.6, 0.6)) +
+  theme_minimal() +
+  theme(plot.margin = margin(t = 30, r = 5, b = 5, l = 5))
+
+# Print the environmental vector plot
+print(env_plot_3k)
+```
+
+```{r}
+nmds_pft_env <- grid.arrange(nmds_plot_3k, env_plot_3k, nrow = 2)
+
+print(nmds_pft_env)
+```
+
+```{r}
+# Extract the vectors and p-values from the envfit result
+vectors_3k <- scores(envfit_result_3k, display = "vectors")
+pvals_3k <- envfit_result_3k$vectors$pvals
+
+# Filter only significant vectors (e.g., p < 0.05)
+significant_vectors_3k <- vectors_3k[pvals_3k < 0.05, , drop = FALSE]
+
+#Extract environmental scores for ggplot
+envfit_vectors_3k_s <- as.data.frame(significant_vectors_3k)
+envfit_vectors_3k_s$variables <- rownames(envfit_vectors_3k_s)
+```
+
+```{r}
+
+# Create a plot for environmental vectors
+env_plot_3k_s <- ggplot(envfit_vectors_3k_s, aes(x = NMDS1, y = NMDS2)) +
+  geom_segment(aes(x = 0, y = 0, xend = NMDS1, yend = NMDS2), 
+               arrow = arrow(length = unit(0.2, "cm")), color = "darkblue", alpha = 0.7, size = 0.3) +
+  geom_text_repel(aes(x = NMDS1, y = NMDS2, label = variables), size = 3) +
+  labs(
+       x = "NMDS1",
+       y = "NMDS2"
+  ) +
+  coord_cartesian(xlim = c(-0.6, 0.6), ylim = c(-0.6, 0.6)) +
+  theme_minimal() +
+  theme(plot.margin = margin(t = 30, r = 5, b = 5, l = 5))
+
+# Print the environmental vector plot
+print(env_plot_3k_s)
+```
+
+```{r}
+#Create combined plot with only significant vectors
+nmds_CM_env_s <- grid.arrange(nmds_plot_3k, env_plot_3k_s, nrow = 2)
+
+print(nmds_CM_env_s)
+```
+
+```{r}
+# Save the arranged plot with the specified aspect ratio
+# ggsave(plot = nmds_CM_env_s, filename = '../figures/nmds_CM_env_s.png', width = 20, height = 15, units = "cm")
+```
+
+### Test with ellipses around C and M within location
+
+```{r}
+nmds_plot_CM_t <- ggplot(nmds_scores_3k, aes(x = NMDS1, y = NMDS2)) +
+  geom_point(aes(fill = Treatment, shape = Location), size = 2, alpha = 0.7, color = "black") +
+  geom_line(data = paired_lines_3k, aes(group = interaction(Location, Sublocation, Block)), 
+            linetype = "dashed", alpha = 0.8, size = 0.3) +
+  stat_ellipse(aes(group = interaction(Location, Treatment), color = Location, linetype = Treatment), 
+               type = "norm", level = 0.95, show.legend = TRUE) +
+  labs(
+    x = "NMDS1",
+    y = "NMDS2",
+    color = "Location",
+    fill = "Treatment",
+    shape = "Location",
+    linetype = "Treatment"
+  ) +
+  theme_minimal() +
+  theme(legend.position = 'top') +
+  coord_cartesian(xlim = c(-0.6, 0.6), ylim = c(-0.6, 0.6)) +
+  scale_fill_manual(values = c("C" = "brown", "M" = "yellow")) + 
+  scale_shape_manual(values = c("BSM" = 21, "HM" = 22, "VSM" = 24)) +
+  guides(
+    color = guide_legend(order = 1, override.aes = list(linetype = "solid", size = 3)),
+    shape = guide_legend(order = 1),
+    fill = guide_legend(order = 2, override.aes = list(fill = c("brown", "yellow"), shape = 21, size = 3)),
+    linetype = guide_legend(order = 3)
+  )
+
+# Print the plot
+print(nmds_plot_CM_t)
+
+```
+
+```{r}
+# ggsave(nmds_plot_CM_t, filename="../figures/nmds_plot_CM_t.png")
+```
+
+I don't think this is a better display than the previous.
+
+## NMDS with temp included
+
+```{r}
+# Step 1: Prepare the Data
+# Filter out rows with any NA values in the relevant columns
+filtered_data <- reveg_var_pca_nut_temp %>%
+  filter(complete.cases(across(Sphagnum:Min_Temp_Fluctuation))) %>%
+  select(-c(Mulch, Bare_peat, Litter, Dead_wood, year, Dead_sph, DateTime, Logger_ID, ...1))
+
+# Remove columns with zero variance
+non_zero_var_columns <- filtered_data %>%
+  select(Sphagnum:Min_Temp_Fluctuation) %>%
+  select(where(~ var(.) != 0))
+
+# Step 1: Log-transform 
+log_transformed_data <- non_zero_var_columns %>%
+  mutate(across(where(is.numeric), log1p))  # Apply log1p to avoid zero/negative issues
+
+# Step 2: Min-max scale the log-transformed data to keep all values between 0 and 1
+normalized_data <- log_transformed_data %>%
+  mutate(across(everything(), ~ (. - min(.)) / (max(.) - min(.))))
+
+# Extract the numeric matrix for NMDS
+full_matrix <- as.matrix(normalized_data)
+
+# Step 2: Perform NMDS
+# We use Bray-Curtis distance, but you can change this if needed
+set.seed(123)  # Set a seed for reproducibility
+nmds_result_nut_temp <- metaMDS(full_matrix, distance = "bray", k = 3, trymax = 100)
+
+# Step 3: Extract and Bind Scores
+# Extract NMDS scores for each site (rows)
+nmds_scores_nut_temp <- as_tibble(scores(nmds_result_nut_temp, display = "sites")) %>%
+  bind_cols(filtered_data %>% select(Location, Treatment, Sublocation, Block))
+
+
+# Step 4: Correct Line Connections
+# Ensure that each C is connected only to its corresponding M within the same block
+nmds_scores_nut_temp <- nmds_scores_nut_temp %>%
+  arrange(Location, Sublocation, Block, Treatment)
+
+# Create a new dataframe to explicitly pair Treatment C and M within each Block
+paired_lines_nut_temp <- nmds_scores_nut_temp %>%
+  group_by(Location, Sublocation, Block) %>%
+  filter(n() == 2) %>%  # Ensure there are exactly two points (C and M) per Block
+  ungroup()
+
+
+```
+
+```{r}
+stressplot(nmds_result_nut_temp)
+```
+
+```{r}
+# Step 5: Plot NMDS with corrected legends and connect blocks
+nmds_plot_nut_temp <- ggplot(nmds_scores_nut_temp, aes(x = NMDS1, y = NMDS2)) +
+  geom_point(aes(fill = Treatment, shape = Location), size = 2, alpha = 0.7, color = "black") +
+  geom_line(data = paired_lines_nut_temp, aes(group = interaction(Location, Sublocation, Block)), linetype = "dashed", alpha = 0.8, size = 0.3) +  # Increase line size to make overlapping lines more visible
+    # Add transparency to points to distinguish overlapping points, Use fill instead of color
+  stat_ellipse(aes(group = Location, color = Location), type = "norm", level = 0.95, show.legend = TRUE) +
+  labs(
+       x = "NMDS1",
+       y = "NMDS2",
+       color = "Location",
+       fill = "Treatment",
+       shape = "Location"
+  ) +
+  theme_minimal() +
+     theme(legend.position = 'top') +
+    coord_cartesian(xlim = c(-0.6, 0.6), ylim = c(-0.7, 0.6)) +
+  scale_fill_manual(values = c("C" = "brown", "M" = "yellow")) + scale_shape_manual(values = c("BSM" = 21, "HM" = 22, "VSM"=24)) +  # Use manual fill scale for categorical Treatment
+  guides(
+    color = guide_legend(order = 1, override.aes = list(linetype = "solid", size = 3)),  # Show color for both lines and ellipses in Location
+    shape = guide_legend(order = 1),  # Include shapes in Location legend
+    fill = guide_legend(order = 2, override.aes = list(fill = c("brown", "yellow"), shape = 21, size = 3)) # Include fill in Treatment legend
+  )
+
+# Print the plot
+print(nmds_plot_nut_temp)
+
+```
+
+```{r}
+
+# Fit environmental vectors onto the NMDS ordination
+envfit_result_nut_temp <- envfit(nmds_result_nut_temp, full_matrix, permutations = 999)
+
+# Extract the vectors and p-values from the envfit result
+vectors_nut_temp <- scores(envfit_result_nut_temp, display = "vectors")
+pvals_nut_temp <- envfit_result_nut_temp$vectors$pvals
+
+# # Filter only significant vectors (e.g., p < 0.05)
+ significant_vectors_nut_temp <- vectors_nut_temp[pvals_nut_temp < 0.05, , drop = FALSE]
+
+#Extract environmental scores for ggplot
+envfit_vectors_nut_temp_s <- as.data.frame(significant_vectors_nut_temp)
+envfit_vectors_nut_temp_s$variables <- rownames(envfit_vectors_nut_temp_s)
+
+```
+
+```{r}
+
+#Extract environmental scores for ggplot
+envfit_vectors_nut_temp <- as.data.frame(vectors_nut_temp)
+envfit_vectors_nut_temp$variables <- rownames(envfit_vectors_nut_temp)
+
+# Change the label of a specific environmental vector
+envfit_vectors_nut_temp <- envfit_vectors_nut_temp %>%
+  mutate(variables = case_when(variables == "soil_gs_min"~ "Min temp", 
+                            variables == "soil_gs_mean"~ "Mean temp",
+                            variables == "soil_gs_max"~ "Max temp",
+                            variables == "Max_Temp_Fluctuation"~ "Max Temp Fluctuation",
+                            variables == "Min_Temp_Fluctuation"~ "Min Temp Fluctuation",
+                            variables == "Avg_Temp_Fluctuation"~ "Mean Temp Fluctuation",
+                            TRUE ~ variables))
+
+# Create a plot for environmental vectors
+env_plot_nut_temp <- ggplot(envfit_vectors_nut_temp, aes(x = NMDS1, y = NMDS2)) +
+  geom_segment(aes(x = 0, y = 0, xend = NMDS1, yend = NMDS2), 
+               arrow = arrow(length = unit(0.2, "cm")), color = "darkblue", alpha = 0.7, size = 0.3) +
+  geom_text_repel(aes(x = NMDS1, y = NMDS2, label = variables), size = 3) +
+  labs(
+       x = "NMDS1",
+       y = "NMDS2"
+  ) +
+  coord_cartesian(xlim = c(-0.6, 0.6), ylim = c(-0.7, 0.6)) +
+  theme_minimal() +
+  theme(plot.margin = margin(t = 30, r = 5, b = 5, l = 5))
+
+# Print the environmental vector plot
+print(env_plot_nut_temp)
+```
+
+```{r}
+
+# Change the label of a specific environmental vector
+envfit_vectors_nut_temp_s <- envfit_vectors_nut_temp_s %>%
+  mutate(variables = case_when(variables == "soil_gs_min"~ "Min temp", 
+                            variables == "soil_gs_mean"~ "Mean temp",
+                            variables == "soil_gs_max"~ "Max temp",
+                            variables == "Max_Temp_Fluctuation"~ "Max Temp Fluctuation",
+                            variables == "Min_Temp_Fluctuation"~ "Min Temp Fluctuation",
+                            variables == "Avg_Temp_Fluctuation"~ "Mean Temp Fluctuation",
+                            TRUE ~ variables))
+
+# Create a plot for environmental vectors
+env_plot_nut_temp_s <- ggplot(envfit_vectors_nut_temp_s, aes(x = NMDS1, y = NMDS2)) +
+  geom_segment(aes(x = 0, y = 0, xend = NMDS1, yend = NMDS2), 
+               arrow = arrow(length = unit(0.2, "cm")), color = "darkblue", alpha = 0.7, size = 0.3) +
+  geom_text_repel(aes(x = NMDS1, y = NMDS2, label = variables), size = 3) +
+  labs(
+       x = "NMDS1",
+       y = "NMDS2"
+  ) +
+  coord_cartesian(xlim = c(-0.6, 0.6), ylim = c(-0.7, 0.6)) +
+  theme_minimal() +
+  theme(plot.margin = margin(t = 30, r = 5, b = 5, l = 5))
+
+# Print the environmental vector plot
+print(env_plot_nut_temp_s)
+```
+
+```{r}
+nmds_CM_env_s <- grid.arrange(nmds_plot_nut_temp, env_plot_nut_temp_s, nrow = 2)
+
+print(nmds_CM_env_s)
+
+# ggsave(nmds_CM_env_s, filename='../figures/nmds_CM_env_all2.png', height=8, width=6)
+```
+
+```{r}
+nmds_plot_CM_t <- ggplot(nmds_scores_nut_temp, aes(x = NMDS1, y = NMDS2)) +
+  geom_point(aes(fill = Treatment, shape = Location), size = 2, alpha = 0.7, color = "black") +
+  geom_line(data = paired_lines_nut_temp, aes(group = interaction(Location, Sublocation, Block)), 
+            linetype = "dashed", alpha = 0.8, size = 0.3) +
+  stat_ellipse(aes(group = interaction(Location, Treatment), color = Location, linetype = Treatment), 
+               type = "norm", level = 0.95, show.legend = TRUE) +
+  labs(
+    x = "NMDS1",
+    y = "NMDS2",
+    color = "Location",
+    fill = "Treatment",
+    shape = "Location",
+    linetype = "Treatment"
+  ) +
+  theme_minimal() +
+  theme(legend.position = 'top') +
+  coord_cartesian(xlim = c(-0.7, 0.7), ylim = c(-0.8, 0.7)) +
+  scale_fill_manual(values = c("C" = "brown", "M" = "yellow")) + 
+  scale_shape_manual(values = c("BSM" = 21, "HM" = 22, "VSM" = 24)) +
+  guides(
+    color = guide_legend(order = 1, override.aes = list(linetype = "solid", size = 3)),
+    shape = guide_legend(order = 1),
+    fill = guide_legend(order = 2, override.aes = list(fill = c("brown", "yellow"), shape = 21, size = 3)),
+    linetype = guide_legend(order = 3)
+  )
+
+# Print the plot
+print(nmds_plot_CM_t)
+
+```
+
+```{r}
+# Create a plot for environmental vectors
+env_plot_nut_temp_CM <- ggplot(envfit_vectors_nut_temp_s, aes(x = NMDS1, y = NMDS2)) +
+  geom_segment(aes(x = 0, y = 0, xend = NMDS1, yend = NMDS2), 
+               arrow = arrow(length = unit(0.2, "cm")), color = "darkblue", alpha = 0.7, size = 0.3) +
+  geom_text_repel(aes(x = NMDS1, y = NMDS2, label = variables), size = 3) +
+  labs(
+       x = "NMDS1",
+       y = "NMDS2"
+  ) +
+  coord_cartesian(xlim = c(-0.7, 0.7), ylim = c(-0.8, 0.7)) +
+  theme_minimal() +
+  theme(plot.margin = margin(t = 30, r = 5, b = 5, l = 5))
+
+# Print the environmental vector plot
+print(env_plot_nut_temp_CM)
+```
+
+```{r}
+nmds_CM_env_st <- grid.arrange(nmds_plot_CM_t, env_plot_nut_temp_CM, nrow = 2)
+
+print(nmds_CM_env_st)
+```
+
+```{r}
+# ggsave(nmds_CM_env_st, filename='../figures/nmds_CM_env_all_split2.png')
+```
+
+## NMDS plot with only soil and temp
+
+```{r}
+# Step 1: Prepare the data
+# Filter out rows with any NA values in the relevant columns
+filtered_data_soil <- reveg_var_pca_nut_temp %>%
+  filter(complete.cases(across(NO3_N:Min_Temp_Fluctuation))) %>%
+  select(-c(year, Dead_sph, DateTime, Logger_ID, ...1))
+
+# Remove columns with zero variance
+non_zero_var_columns <- filtered_data_soil %>%
+  select(NO3_N:Min_Temp_Fluctuation) %>%
+  select(where(~ var(.) != 0))
+
+# Step 1: Log-transform 
+log_transformed_data <- non_zero_var_columns %>%
+  mutate(across(where(is.numeric), log1p))  # Apply log1p to avoid zero/negative issues
+
+# Step 2: Min-max scale the log-transformed data to keep all values between 0 and 1
+normalized_data <- log_transformed_data %>%
+  mutate(across(everything(), ~ (. - min(.)) / (max(.) - min(.))))
+
+# Extract the numeric matrix for NMDS
+full_matrix <- as.matrix(normalized_data)
+
+# Step 2: Perform NMDS
+# We use Bray-Curtis distance, but you can change this if needed
+set.seed(123)  # Set a seed for reproducibility
+nmds_result_soil <- metaMDS(full_matrix, distance = "bray", k = 3, trymax = 100)
+
+# Step 3: Extract and Bind Scores
+# Extract NMDS scores for each site (rows)
+nmds_scores_soil <- as_tibble(scores(nmds_result_soil, display = "sites")) %>%
+  bind_cols(filtered_data %>% select(Location, Treatment, Sublocation, Block))
+
+
+# Step 4: Correct Line Connections
+# Ensure that each C is connected only to its corresponding M within the same block
+nmds_scores_soil <- nmds_scores_soil %>%
+  arrange(Location, Sublocation, Block, Treatment)
+
+# Create a new dataframe to explicitly pair Treatment C and M within each Block
+paired_lines_soil <- nmds_scores_soil %>%
+  group_by(Location, Sublocation, Block) %>%
+  filter(n() == 2) %>%  # Ensure there are exactly two points (C and M) per Block
+  ungroup()
+
+
+```
+
+```{r}
+stressplot(nmds_result_soil)
+```
+
+```{r}
+# Step 5: Plot NMDS with corrected legends and connect blocks
+nmds_plot_soil <- ggplot(nmds_scores_soil, aes(x = NMDS1, y = NMDS2)) +
+  geom_point(aes(fill = Treatment, shape = Location), size = 2, alpha = 0.7, color = "black") +
+  geom_line(data = paired_lines_soil, aes(group = interaction(Location, Sublocation, Block)), linetype = "dashed", alpha = 0.8, size = 0.3) +  # Increase line size to make overlapping lines more visible
+    # Add transparency to points to distinguish overlapping points, Use fill instead of color
+  stat_ellipse(aes(group = Location, color = Location), type = "norm", level = 0.95, show.legend = TRUE) +
+  labs(
+       x = "NMDS1",
+       y = "NMDS2",
+       color = "Location",
+       fill = "Treatment",
+       shape = "Location"
+  ) +
+  theme_minimal() +
+     theme(legend.position = 'top') +
+    coord_cartesian(xlim = c(-0.7, 0.7), ylim = c(-0.8, 0.6)) +
+  scale_fill_manual(values = c("C" = "brown", "M" = "yellow")) + scale_shape_manual(values = c("BSM" = 21, "HM" = 22, "VSM"=24)) +  # Use manual fill scale for categorical Treatment
+  guides(
+    color = guide_legend(order = 1, override.aes = list(linetype = "solid", size = 3)),  # Show color for both lines and ellipses in Location
+    shape = guide_legend(order = 1),  # Include shapes in Location legend
+    fill = guide_legend(order = 2, override.aes = list(fill = c("brown", "yellow"), shape = 21, size = 3)) # Include fill in Treatment legend
+  )
+
+# Print the plot
+print(nmds_plot_soil)
+
+```
+
+```{r}
+# Fit environmental vectors onto the NMDS ordination
+envfit_result_soil <- envfit(nmds_result_soil, full_matrix, permutations = 999)
+
+# Extract the vectors and p-values from the envfit result
+vectors_soil <- scores(envfit_result_soil, display = "vectors")
+pvals_soil <- envfit_result_soil$vectors$pvals
+
+ # Filter only significant vectors (e.g., p < 0.05)
+ significant_vectors_soil <- vectors_soil[pvals_soil < 0.05, , drop = FALSE]
+
+#Extract environmental scores for ggplot
+envfit_vectors_soil_s <- as.data.frame(significant_vectors_soil)
+envfit_vectors_soil_s$variables <- rownames(envfit_vectors_soil_s)
+
+# Change the label of a specific environmental vector
+envfit_vectors_soil_s <- envfit_vectors_soil_s %>%
+  mutate(variables = case_when(variables == "soil_gs_min"~ "Min temp", 
+                            variables == "soil_gs_mean"~ "Mean temp",
+                            variables == "soil_gs_max"~ "Max temp",
+                            variables == "Max_Temp_Fluctuation"~ "Max Temp Fluctuation",
+                            variables == "Min_Temp_Fluctuation"~ "Min Temp Fluctuation",
+                            variables == "Avg_Temp_Fluctuation"~ "Mean Temp Fluctuation",
+                            TRUE ~ variables))
+
+# Create a plot for environmental vectors
+env_plot_soil_s <- ggplot(envfit_vectors_soil_s, aes(x = NMDS1, y = NMDS2)) +
+  geom_segment(aes(x = 0, y = 0, xend = NMDS1, yend = NMDS2), 
+               arrow = arrow(length = unit(0.2, "cm")), color = "darkblue", alpha = 0.7, size = 0.3) +
+  geom_text_repel(aes(x = NMDS1, y = NMDS2, label = variables), size = 3) +
+  labs(
+       x = "NMDS1",
+       y = "NMDS2"
+  ) +
+  coord_cartesian(xlim = c(-0.7, 0.7), ylim = c(-0.8, 0.6)) +
+  theme_minimal() +
+  theme(plot.margin = margin(t = 30, r = 5, b = 5, l = 5))
+
+# Print the environmental vector plot
+print(env_plot_soil_s)
+```
+
+```{r}
+nmds_CM_soil_s <- grid.arrange(nmds_plot_soil, env_plot_soil_s, nrow = 2)
+
+print(nmds_CM_soil_s)
+
+# ggsave(nmds_CM_soil_s, filename='../figures/nmds_CM_soil.png', height=8, width=6)
+```
+
+## NMDS plot PTFs all treatments
+
+### NMDS with k=2
+
+```{r}
+
+# Step 1: Prepare the Data
+# Filter out rows with any NA values in the relevant columns
+filtered_data_pft <- reveg_var_pca_nut_all %>%
+  filter(complete.cases(across(Sphagnum:Shrubs_Trees)))
+
+# Remove columns with zero variance
+non_zero_var_columns2 <- filtered_data_pft %>%
+  select(Sphagnum:Shrubs_Trees) %>%
+  select(where(~ var(.) != 0))
+
+# Step 1: Log-transform 
+log_transformed_data2 <- non_zero_var_columns2 %>%
+  mutate(across(where(is.numeric), log1p))  # Apply log1p to avoid zero/negative issues
+
+# Step 2: Min-max scale the log-transformed data to keep all values between 0 and 1
+normalized_data2 <- log_transformed_data2 %>%
+  mutate(across(everything(), ~ (. - min(.)) / (max(.) - min(.))))
+
+# Extract the numeric matrix for NMDS
+full_matrix2 <- as.matrix(normalized_data2)
+
+# Step 3: Perform NMDS
+# We use Bray-Curtis distance, but you can change this if needed
+set.seed(125)  # Set a seed for reproducibility
+nmds_result2 <- metaMDS(full_matrix2, distance = "bray", k = 2, trymax = 100)
+
+# Step 4: Extract and Bind Scores
+# Extract NMDS scores for each site (rows)
+nmds_scores2 <- as_tibble(scores(nmds_result2, display = "sites")) %>%
+  bind_cols(filtered_data_pft %>% select(Location, Treatment, Sublocation, Block))
+
+# Step 5: Correct Line Connections
+nmds_scores2 <- nmds_scores2 %>%
+  arrange(Location, Sublocation, Block, Treatment)
+
+# Create a new dataframe to include all treatments within each Block
+paired_lines2 <- nmds_scores2 %>%
+  group_by(Location, Sublocation, Block) %>%
+  filter(n() >= 2) %>%  # Include all points per Block (supports multiple treatments)
+  ungroup()
+
+
+
+
+
+```
+
+A bit too high stress here
+
+Read results
+
+```{r}
+stressplot(nmds_result2)
+```
+
+Slightly more spread, but ok?
+
+```{r}
+goodness_scores2 <- goodness(nmds_result2)
+plot(nmds_result2, display = "sites")
+points(nmds_result2, display = "sites", cex = goodness_scores2 * 2)
+```
+
+### NMDS with k=3
+
+```{r}
+
+# Step 2: Perform NMDS
+# We use Bray-Curtis distance, but you can change this if needed
+set.seed(123)  # Set a seed for reproducibility
+nmds_result3 <- metaMDS(full_matrix2, distance = "bray", k = 3, trymax = 100)
+
+# Step 3: Extract and bind scores
+# Extract NMDS scores for each site (rows)
+nmds_scores3 <- as_tibble(scores(nmds_result3, display = "sites")) %>%
+  bind_cols(filtered_data_pft %>% select(Location, Treatment, Sublocation, Block))
+
+# Step 4: Correct line connections
+nmds_scores3 <- nmds_scores3 %>%
+  arrange(Location, Sublocation, Block, Treatment)
+
+# Create a new dataframe to include all treatments within each Block
+paired_lines3 <- nmds_scores3 %>%
+  group_by(Location, Sublocation, Block) %>%
+  filter(n() >= 2) %>%  # Include all points per Block (supports multiple treatments)
+  ungroup()
+
+
+
+
+
+```
+
+```{r}
+stressplot(nmds_result3)
+```
+
+```{r}
+# Step 5: Plot NMDS with corrected legends and connect blocks
+nmds_plot3 <- ggplot(nmds_scores3, aes(x = NMDS1, y = NMDS2)) +
+  geom_point(aes(fill = Treatment, shape = Location), size = 2, alpha = 0.5, color = "black") +
+  geom_line(data = paired_lines3, aes(group = interaction(Location, Sublocation, Block)), linetype = "dashed", alpha = 0.8, size = 0.3) +  # Increase line size to make overlapping lines more visible
+    # Add transparency to points to distinguish overlapping points, Use fill instead of color
+  stat_ellipse(aes(group = Treatment, fill = Treatment, color=Treatment), type = "norm", level = 0.95, show.legend = FALSE) +
+  labs(
+       x = "NMDS1",
+       y = "NMDS2",
+       fill = "Treatment",
+       shape = "Location"
+  ) +
+  theme_minimal() +
+  theme(legend.position = 'top') +
+    coord_cartesian(xlim = c(-1.6, 1), ylim = c(-1.4, 1.4)) +
+   scale_fill_manual(values = c("C" = "brown", "M" = "yellow", "S" = "darkgreen", "R" = "magenta")) + 
+  scale_color_manual(values = c("C" = "brown", "M" = "yellow", "S" = "darkgreen", "R" = "magenta")) +
+  scale_shape_manual(values = c("BSM" = 21, "HM" = 22, "VSM" = 24)) +  # Use manual fill scale for categorical Treatment
+  guides(
+    shape = guide_legend(order = 1),  # Include shapes in Location legend
+    fill = guide_legend(order = 2, override.aes = list(shape = 21, size = 3)) # Include fill in Treatment legend
+  )
+# Print the plot
+print(nmds_plot3)
+
+```
+
+```{r}
+# ggsave(nmds_plot3, filename='../figures/nmds_pft_3d.png')
+```
+
+Test with a plot with NMDS1 and NMDS3, to see if NMDS3 changes a lot of the perspective.
+
+```{r}
+# Step 5: Plot NMDS with Corrected Legends and Connect Blocks
+nmds_plot4 <- ggplot(nmds_scores3, aes(x = NMDS1, y = NMDS3)) +
+  geom_point(aes(fill = Treatment, shape = Location), size = 3, alpha = 0.5, color = "black") +
+  geom_line(data = paired_lines3, aes(group = interaction(Location, Sublocation, Block)), linetype = "dashed", alpha = 0.8, size = 0.5) +  # Increase line size to make overlapping lines more visible
+    # Add transparency to points to distinguish overlapping points, Use fill instead of color
+  stat_ellipse(aes(group = Treatment, fill = Treatment, color=Treatment), type = "norm", level = 0.95, show.legend = FALSE) +
+  labs(
+       x = "NMDS1",
+       y = "NMDS3",
+       fill = "Treatment",
+       shape = "Location"
+  ) +
+  theme_minimal() +
+  theme(legend.position = 'top') +
+   scale_fill_manual(values = c("C" = "brown", "M" = "yellow", "S" = "darkgreen", "R" = "magenta")) + 
+  scale_color_manual(values = c("C" = "brown", "M" = "yellow", "S" = "darkgreen", "R" = "magenta")) +
+  scale_shape_manual(values = c("BSM" = 21, "HM" = 22, "VSM" = 24)) +  # Use manual fill scale for categorical Treatment
+  guides(
+    shape = guide_legend(order = 1),  # Include shapes in Location legend
+    fill = guide_legend(order = 2, override.aes = list(shape = 21, size = 3)) # Include fill in Treatment legend
+  )
+# Print the plot
+print(nmds_plot4)
+```
+
+```{r}
+
+# Step 6: Plot Environmental Vectors in separate figure
+# Assume envfit_result is the output from envfit() function
+envfit_result3 <- envfit(nmds_result3, full_matrix2, permutations = 999)
+envfit_vectors3 <- as.data.frame(scores(envfit_result3, display = "vectors"))
+envfit_vectors3$variables <- rownames(envfit_vectors3)
+
+# Create a plot for environmental vectors
+env_plot3 <- ggplot(envfit_vectors3, aes(x = NMDS1, y = NMDS2)) +
+  geom_segment(aes(x = 0, y = 0, xend = NMDS1, yend = NMDS2), 
+               arrow = arrow(length = unit(0.2, "cm")), color = "darkblue", alpha = 0.7, size = 0.3) +
+  geom_text_repel(aes(x = NMDS1, y = NMDS2, label = variables), size = 3) +
+  labs(
+       x = "NMDS1",
+       y = "NMDS2"
+  ) +
+  theme_minimal() +
+    coord_cartesian(xlim = c(-1, 1.55), ylim = c(-1.4, 1.25)) +
+  theme(plot.margin = margin(t = 30, r = 5, b = 5, l = 5))
+
+# Print the environmental vector plot
+print(env_plot3)
+
+
+```
+
+```{r}
+# Scale the length of arrows for better visibility
+envfit_vectors_scaled <- envfit_vectors3 %>% mutate(NMDS1 = NMDS1 * 2, NMDS2 = NMDS2 * 2)
+
+# Create a plot for environmental vectors
+env_plot3b <- ggplot(envfit_vectors_scaled, aes(x = NMDS1, y = NMDS2)) +
+  geom_segment(aes(x = 0, y = 0, xend = NMDS1, yend = NMDS2), 
+               arrow = arrow(length = unit(0.2, "cm")), color = "darkblue", alpha = 0.7, size = 0.3) +
+  geom_text_repel(aes(x = NMDS1, y = NMDS2, label = variables), size = 3) +
+  labs(
+       x = "NMDS1",
+       y = "NMDS2"
+  ) +
+  theme_minimal() +
+      coord_cartesian(xlim = c(-1, 1.55), ylim = c(-1.4, 1.25)) +
+  theme(plot.margin = margin(t = 30, r = 5, b = 5, l = 5))
+
+print(env_plot3b)
+```
+
+```{r}
+nmds_pft_env2 <- grid.arrange(nmds_plot3, env_plot3, nrow = 2)
+
+print(nmds_pft_env2)
+```
+
+Only use significant vectors
+
+```{r}
+# Extract the vectors and p-values from the envfit result
+vectors_3_s <- scores(envfit_result3, display = "vectors")
+pvals_3_s <- envfit_result3$vectors$pvals
+
+# Filter only significant vectors (e.g., p < 0.05)
+significant_vectors_3_s<- vectors_3_s[pvals_3_s < 0.05, , drop = FALSE]
+
+#Extract environmental scores for ggplot
+envfit_vectors_3_s <- as.data.frame(significant_vectors_3_s)
+envfit_vectors_3_s$variables <- rownames(envfit_vectors_3_s)
+```
+
+```{r}
+
+# Create a plot for environmental vectors
+env_plot_3_s <- ggplot(envfit_vectors_3_s, aes(x = NMDS1, y = NMDS2)) +
+  geom_segment(aes(x = 0, y = 0, xend = NMDS1, yend = NMDS2), 
+               arrow = arrow(length = unit(0.2, "cm")), color = "darkblue", alpha = 0.7, size = 0.3) +
+  geom_text_repel(aes(x = NMDS1, y = NMDS2, label = variables), size = 3) +
+  labs(
+       x = "NMDS1",
+       y = "NMDS2"
+  ) +
+  coord_cartesian(xlim = c(-1, 1.55), ylim = c(-1.4, 1.25)) +
+  theme_minimal() +
+  theme(plot.margin = margin(t = 30, r = 5, b = 5, l = 5))
+
+# Print the environmental vector plot
+print(env_plot_3_s)
+```
+
+```{r}
+nmds_pft_env2_s <- grid.arrange(nmds_plot3, env_plot_3_s, nrow = 2)
+
+print(nmds_pft_env2_s)
+```
+
+```{r}
+# # Save the arranged plot with the specified aspect ratio
+# ggsave(plot = nmds_pft_env2_s, filename = '../figures/nmds_pft_env2_s.png', width = 20, height = 15, units = "cm")
+```
+
+### Test with clusters
+
+```{r}
+# Step 4: Perform Hierarchical Clustering on the NMDS Scores
+# Use the NMDS scores to calculate distance for clustering
+distance_matrix <- dist(nmds_scores3 %>% select(NMDS1, NMDS2, NMDS3))  # Using 3 dimensions if k=3
+hc <- hclust(distance_matrix, method = "ward.D2")  # Hierarchical clustering
+
+# Cut the dendrogram to create a specified number of clusters, e.g., 3 clusters
+n_clusters <- 3
+nmds_scores3 <- nmds_scores3 %>% 
+  mutate(Cluster = as.factor(cutree(hc, k = n_clusters)))  # Add cluster info as a factor
+```
+
+```{r}
+# Step 6: Plot NMDS with Clusters
+nmds_plot3 <- ggplot(nmds_scores3, aes(x = NMDS1, y = NMDS2)) +
+  geom_point(aes(fill = Cluster, shape = Location), size = 2, alpha = 0.7, color = "black") +
+  geom_line(data = paired_lines3, aes(group = interaction(Location, Sublocation, Block)), 
+            linetype = "dashed", alpha = 0.8, size = 0.3) +
+  stat_ellipse(aes(group = Treatment, fill = Treatment, color = Treatment), type = "norm", level = 0.95, show.legend = FALSE) +
+  labs(
+       x = "NMDS1",
+       y = "NMDS2",
+       fill = "Cluster",  # Update legend title for clusters
+       shape = "Location"
+  ) +
+  theme_minimal() +
+  theme(legend.position = 'top') +
+  coord_cartesian(xlim = c(-1, 1.55), ylim = c(-1.4, 1.25)) +
+  scale_fill_manual(values = c("1" = "red", "2" = "blue", "3" = "green")) +  # Update colors for clusters
+  scale_shape_manual(values = c("BSM" = 21, "HM" = 22, "VSM" = 24)) +
+  guides(
+    shape = guide_legend(order = 1),
+    fill = guide_legend(order = 2, override.aes = list(shape = 21, size = 3))
+  )
+
+# Print the plot with clusters
+print(nmds_plot3)
+```
+
+The clusters groups most of R + S together, while splitting by NMDS2 scores mainly. This mainly link to Polytrichum and Other Mosses, I think.
+
+# Combined NMDS figure; both plots
+
+```{r}
+
+# Create two text labels for A and B
+label_A <- textGrob("A", x = unit(0.05, "npc"), y = unit(0.95, "npc"), just = c("left", "top"), gp = gpar(fontsize = 16, fontface = "bold"))
+label_B <- textGrob("B", x = unit(0.05, "npc"), y = unit(0.95, "npc"), just = c("left", "top"), gp = gpar(fontsize = 16, fontface = "bold"))
+
+# Arrange the plots with labels included
+plot_A <- arrangeGrob(nmds_pft_env2_s, top = label_A)
+plot_B <- arrangeGrob(nmds_CM_env_s, top = label_B)
+
+# Add extra space above the combined plot
+extra_space <- grid::nullGrob()  # An empty grob to add some space
+
+combined_nmds_plot <- grid.arrange(
+  extra_space,  # Add extra space above
+  plot_A, plot_B,
+  ncol = 2,  # Arrange everything in one column first
+  layout_matrix = rbind(c(1), c(2, 3)),  # Specify the layout to create space above
+  heights = c(0.05, 1)  # Adjust the height: 0.2 for extra space, 1 for the plots
+)
+
+# Save the combined plot
+# ggsave(combined_nmds_plot, filename='../figures/combined_nmds_plot.png', height = 20, width = 30, unit="cm")
+
+```
+
+```{r}
+# Create two text labels for A and B
+label_A <- textGrob("A", x = unit(0.05, "npc"), y = unit(0.95, "npc"), just = c("left", "top"), gp = gpar(fontsize = 16, fontface = "bold"))
+label_B <- textGrob("B", x = unit(0.05, "npc"), y = unit(0.95, "npc"), just = c("left", "top"), gp = gpar(fontsize = 16, fontface = "bold"))
+
+# Arrange the plots with labels included
+plot_A <- arrangeGrob(nmds_pft_env2_s, top = label_A)
+plot_B <- arrangeGrob(nmds_CM_soil_s, top = label_B)
+
+# Add extra space above the combined plot
+extra_space <- grid::nullGrob()  # An empty grob to add some space
+
+combined_nmds_plot2 <- grid.arrange(
+  extra_space,  # Add extra space above
+  plot_A, plot_B,
+  ncol = 2,  # Arrange everything in one column first
+  layout_matrix = rbind(c(1), c(2, 3)),  # Specify the layout to create space above
+  heights = c(0.05, 1)  # Adjust the height: 0.2 for extra space, 1 for the plots
+)
+
+# Save the combined plot
+# ggsave(combined_nmds_plot2, filename='../figures/combined_nmds_plot2.png', height = 20, width = 30, unit="cm")
+
+
+
+```
