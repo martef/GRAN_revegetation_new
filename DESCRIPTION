@@ -1,1 +1,39 @@
 usethis::use_description()
+
+Package: GRANrevegetation
+Title: Analysis of GRAN revegetation experiment
+Version: 0.0.1
+Authors@R: person("Marte", "Fandrem", email = "marte.fandrem@gmail.com", role = c("aut", "cre"))
+Description: Analysis scripts and outputs for GRAN revegetation study.
+License: MIT
+Encoding: UTF-8
+LazyData: true
+Roxygen: list(markdown = TRUE)
+Imports:
+    tidyverse,
+    vegan,
+    lme4,
+    ggplot2,
+    brms,
+    loo,
+    bayesplot,
+    tidybayes,
+    cowplot,
+    openxlsx,
+    ggridges,
+    ggrepel,
+    grid,
+    gridExtra,
+    posterior,
+    rstan,
+    sjPlot,
+    scales,
+    RColorBrewer,
+    patchwork,
+    readr,
+    lubridate,
+    stringr,
+    forcats,
+    knitr,
+    rmarkdown,
+    quarto
